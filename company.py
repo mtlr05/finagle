@@ -66,6 +66,7 @@ class company:
             self.fin.set_index('date',inplace=True)
             self.fin['shares'] = shares
             self.fin['price'] = price
+            self.fin['MnA'] = 0
             
             #check financial data completeness
             self.__datacheck()
@@ -119,7 +120,7 @@ class company:
                 self.years = list(range(self.year+1))
                 logging.warning("Warning: length of EBITDA forecast appear larger then the 'year' parameter used at initialization")
         
-            from_ebitda_columns = ['price', 'tax', 'interest', 'capex', 'noa', 'nol', 'ebitda', 'shares', 'dwc', 'debt', 'cash', 'da']
+            from_ebitda_columns = ['price', 'tax', 'interest', 'capex', 'noa', 'nol', 'ebitda', 'shares', 'dwc', 'debt', 'cash', 'da','MnA']
             from_ebitda_forecasts = ['ebitda','capex','dwc','debt']
         
             check_columns = set(from_ebitda_columns) == set(list(self.fin.columns.values))
@@ -180,6 +181,7 @@ class company:
         self.fin.set_index('date',inplace=True)
         self.fin['shares'] = self.shares
         self.fin['price'] = self.price
+        self.fin['MnA'] = 0
         
         self.__datacheck()
         logging.info('input data used for the forecast is:')
@@ -239,15 +241,15 @@ class company:
             self.fin['tax'].iloc[i] = self.fin['tax'].iloc[i-1]+self.t*(self.fin['income_pretax'].iloc[i]-self.fin['income_pretax'].iloc[i-1])
 
         self.fin['fcf'] = self.fin.ebitda - self.fin.tax_cash - self.fin.capex - self.fin.dwc - self.fin.interest
-        self.fin['fcfe'] = self.fin.ebitda - self.fin.tax_cash - self.fin.capex - self.fin.dwc + self.fin.dDebt - self.fin.interest 
-        self.fin['fcff'] = self.fin.ebitda - self.fin.tax_cash - self.fin.capex - self.fin.dwc - self.fin.interest*self.t 
+        self.fin['fcfe'] = self.fin.ebitda - self.fin.tax_cash - self.fin.capex - self.fin.dwc + self.fin.dDebt - self.fin.interest - self.fin.MnA
+        self.fin['fcff'] = self.fin.ebitda - self.fin.tax_cash - self.fin.capex - self.fin.dwc - self.fin.interest*self.t - self.fin.MnA
         
         self.fin['cash'].iloc[1:]  = self.fin['fcfe'].iloc[1:]
         self.fin['cash'] = self.fin['cash'].cumsum()
         self.fin['noa'].iloc[1:]  = self.fin['noa'].iloc[0]
         logging.info('fcf_from_ebitda() method complete')
         
-    def fcf_to_debt(self,leverage = 3):
+    def fcf_to_debt(self,leverage = 3, year_d = 1):
         '''
         Adjust debt levels to desired target. Decrease (or increase) FCFE to reduce (or increase) debt towards target leverage
         prerequisite: Must first have fcf defined
@@ -264,7 +266,7 @@ class company:
         
         #run the loop 3 times just to converge on the interest and FCF
         for i in range(3):
-            for i in range(self.year):
+            for i in range(year_d-1, self.year):
                 if (self.fin['debt'].iloc[i]-self.fin['debt_Target'].iloc[i+1]<0): #underlevered
                     dDebt = -1*(self.fin['debt'].iloc[i]-self.fin['debt_Target'].iloc[i+1]) 
                 else: #overlevered
@@ -331,7 +333,8 @@ class company:
         dCapex = cap_frac*np.array(dEbitda)
         dDebt = [leverage*dEbitda[year_a+1] if x >= year_a else 0 for x in range(self.year+1)]  
         self.fin['debt'] = self.fin['debt']+dDebt
-        self.fin['capex'].iloc[year_a] = self.fin['capex'].iloc[year_a]+multiple*dEbitda[year_a+1]
+        #self.fin['capex'].iloc[year_a] = self.fin['capex'].iloc[year_a]+multiple*dEbitda[year_a+1]
+        self.fin['MnA'].iloc[year_a] = self.fin['MnA'].iloc[year_a]+multiple*dEbitda[year_a+1]
         self.fin['capex'] = self.fin['capex']+dCapex
         self.fin['ebitda'] = self.fin['ebitda']+dEbitda
         
@@ -376,7 +379,7 @@ class company:
         
     def display_fin(self):
         
-        table = self.fin[['ebitda','da','interest','income_pretax','nol','income_taxable','tax_cash','tax','capex','dDebt','dwc','fcfe','fcff','cash','equity','debt','EV','wacc','firm','shares','price','value_per_share']].T.style.format("{:.1f}")
+        table = self.fin[['ebitda','da','interest','income_pretax','nol','income_taxable','tax_cash','tax','capex','MnA','dDebt','dwc','fcf','fcfe','fcff','cash','noa','equity','debt','EV','wacc','firm','shares','price','value_per_share']].T.style.format("{:.1f}")
         
         wb = load_workbook(filename = 'company_template.xlsx')
         ws = wb['raw data']
