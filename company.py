@@ -307,12 +307,13 @@ class company:
         self.buybacks = True
         logging.info('fcf_to_buybacks() method complete')
         
-    def fcf_to_acquire(self, year_a = 1, ebitda_frac = 0.1, multiple = 10, leverage = 3, gnext = 0.1, cap_frac = 0.2):
+    def fcf_to_acquire(self, adjust_cash, year_a = 1, ebitda_frac = 0.1, multiple = 10, leverage = 3, gnext = 0.1, cap_frac = 0.2):
         '''
         ebitda_frac, EBITDA of the target, relative to the organic ebitda
         gnext, next years growth
         multiple, EV/EBITDA multiple of the acquisition
         leverage, Debt/EBITDA leverage target
+        adjust_cash, adjust cash balance in year 0
         '''
         
         if self.data_for_ebitda == False: 
@@ -334,7 +335,7 @@ class company:
         self.fin['capex'] = self.fin['capex']+dCapex
         self.fin['ebitda'] = self.fin['ebitda']+dEbitda
         
-        if year_a == 0:
+        if year_a == 0 & adjust_cash == True:
             self.fin['cash'].iloc[0] = self.fin['cash'].iloc[0] - (multiple-leverage)*dEbitda[1]
         
         if self.fin['cash'].iloc[year_a] < 0: 
