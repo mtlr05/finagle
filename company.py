@@ -338,7 +338,7 @@ class company:
         self.fin['capex'] = self.fin['capex']+dCapex
         self.fin['ebitda'] = self.fin['ebitda']+dEbitda
         
-        if year_a == 0 & adjust_cash == True:
+        if year_a == 0 and adjust_cash == True:
             self.fin['cash'].iloc[0] = self.fin['cash'].iloc[0] - (multiple-leverage)*dEbitda[1]
         
         if self.fin['cash'].iloc[year_a] < 0: 
