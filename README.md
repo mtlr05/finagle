@@ -22,4 +22,50 @@ The jupyter notebook 'Valuation notebook.ipynb' is a convenient way of using the
 
 ## Company template 
 
-The company template is a file which is called with the cmp.display_fin() method which is used to create a spreadsheet report
+The company template is a file which is called with the `xyz.display_fin()` method which is used to create a spreadsheet report
+
+## Example
+
+```
+import company as cmp
+
+#initializers
+rd = 0.045
+re = 0.10
+t = 0.21
+shares = 46 
+gt = 0.02
+roict=0.15 #mostly used for calculating terminal D&A
+year = 10 #number of years to forescast; i.e. not including ttm (baseline) year
+
+#company input data
+financials = {
+'date' : '2021-9-30',
+'ebitda' : [881], #898 - stock based comp. only the ttm year, other years are calculated using the forecast_ebitda() method
+'capex' :  [64,85],
+'dwc' : [0,0,0,0,0,0,0,0,0,0,0],
+'tax' : [192],
+'da' : [79], #don't input for all years since the terminal year should be calculated from capex and ROIC
+'debt' :  [758,758,758,758,765,765,765,765,765,765,765], 
+
+'interest' : [33],
+'cash' : 576,
+'nol' : 0,
+'noa' : 0,
+}
+
+ATKR = cmp.company(ticker = 'ATKR',rd = rd,re = re,t = t,shares = shares,gt = gt,roict = roict,year = year)
+ATKR.forecast_ebitda(881,[-0.19,-0.15,0.10,0.10], financials) #only input 'organic' EBITDA
+ATKR.forecast_capex(financials['capex'],financials)
+ATKR.load_financials(financials = financials.copy())
+ATKR.fcf_from_ebitda()
+ATKR.fcf_to_acquire(year_a = 0, ebitda_frac = 0.008, multiple = 6.5, leverage = 0, gnext = 0.1, cap_frac = 0.12, adjust_cash = False)
+ATKR.fcf_to_acquire(year_a = 1, ebitda_frac = 0.03, multiple = 6.5, leverage = 0, gnext = 0.1, cap_frac = 0.12, adjust_cash = False)
+ATKR.fcf_to_acquire(year_a = 2, ebitda_frac = 0.1, multiple = 6.5, leverage = 0, gnext = 0.1, cap_frac = 0.12, adjust_cash = False)
+ATKR.fcf_to_debt(leverage=2, year_d=3)
+ATKR.fcf_to_buyback(price=120,dp = 'proportional')
+ATKR.value()
+ATKR.display_fin()
+```
+
+
