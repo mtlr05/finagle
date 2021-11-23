@@ -175,6 +175,29 @@ class company:
         
         return ebitda
         
+    def forecast_capex(self,capex_f,financials):
+        '''creates an capex forecast and populates the financials'''
+        if isinstance(capex_f,list):
+            length = np.count_nonzero(~np.isnan(capex_f))
+            capex = capex_f
+        elif isinstance(capex_f,float):
+            length = 1
+            capex = [capex_f]
+        elif isinstance(capex_f,int):
+            length = 1
+            capex = [capex_f]
+        else:
+            length = np.count_nonzero(~np.isnan(capex_f))
+            capex = list(capex_f.iloc[0:length])
+
+        for i in range(length,self.year+1): #start scaling with ebitda where the forecast ends
+            capex.append(capex[length-1]/financials['ebitda'][length-1]*financials['ebitda'][i])
+            
+        if financials != None:
+            financials['capex'] = capex #since this is a dict it will populate the elements similar to a pointer
+        
+        return capex    
+        
     def load_financials(self, financials):
         financials['date'] = [datetime.datetime.strptime(financials['date'], '%Y-%m-%d')+datetime.timedelta(days=365*i) for i in range(self.year+1)]
         self.fin = pd.DataFrame({key:pd.Series(value) for key,value in financials.items()})
