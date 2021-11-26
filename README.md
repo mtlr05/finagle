@@ -14,7 +14,13 @@ It has a number of methods which in general should be run in order once initiali
 - `value()`, this method is use for calculating a DCF from the cashflows, This shold be run only once other methods described have been run
 - `display_fin()`, this method is used to process the financials. It should be used once all modelling is completed
 
-You may refer to the docstring in the class for more details on its use or the notebook for examples on its us
+
+Below is a figure which explains the various cashflows and values which are calculated using these cashflows.
+
+
+![relationship between cashflows](FCF_relations.png)
+
+
 
 ## Valuation notebook
 
