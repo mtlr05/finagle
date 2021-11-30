@@ -18,7 +18,7 @@ class company:
     value(), this method is use for calculating a DCF from the cashflows, This shold be run only once other methods described have been run
     display_fin(), this method is used to process the financials. It should be used once all modelling is completed
     '''
-    def __init__(self, financials = None, ticker = None, re = None, rd = None, t = None, shares = 1, price = 0, gt = 0, fcfe = None, fcff = None, fcf = None, roict = 0.15, year = 6):
+    def __init__(self, financials = None, ticker = None, re = None, rd = None, t = None, shares = 1, price = 0, gt = 0, fcfe = None, fcff = None, fcf = None, roict = 0.15, year = 6, dividend = 0):
         
         '''
         self = object instance of the current 
@@ -35,6 +35,7 @@ class company:
         fcfe = free cash flow to equity
         fcff = free cash flow to firm
         roict = return on invested capital in the terminal year, 15% default, mostly creates impact via taxes (by calculating depreciation) since gt and capex are explicitly specified
+        dividend = current dividend policy
         '''
         
         #setup logging
@@ -56,6 +57,7 @@ class company:
         self.years = list(range(year+1))
         self.now = datetime.date.today()
         self.buybacks = False
+        self.dividend = dividend
 
         #create financial dataframe
         if financials == None:
@@ -271,8 +273,13 @@ class company:
         self.fin['fcf'] = self.fin.ebitda - self.fin.tax_cash - self.fin.capex - self.fin.dwc - self.fin.interest
         self.fin['fcfe'] = self.fin.ebitda - self.fin.tax_cash - self.fin.capex - self.fin.dwc + self.fin.dDebt - self.fin.interest - self.fin.MnA
         self.fin['fcff'] = self.fin.ebitda - self.fin.tax_cash - self.fin.capex - self.fin.dwc - self.fin.interest*self.t - self.fin.MnA
-        self.fin['dividend'] = (self.fin['fcfe']-self.fin['buybacks'])/self.fin['shares']
         
+        self.fin['dividend_policy'] = self.dividend*self.shares
+        for i in range(1,self.year+1):
+            self.fin['dividend_policy'].iloc[i] = max(self.dividend*self.shares/self.fin['fcf'].iloc[0]*self.fin['fcf'].iloc[i],self.fin['dividend_policy'].iloc[i-1])
+        
+        print(self.fin['dividend_policy'])
+        self.fin['dividend'] = (self.fin['fcfe']-self.fin['buybacks'])/self.fin['shares']
         self.fin['cash'].iloc[1:]  = self.fin['fcfe'].iloc[1:]
         self.fin['cash'] = self.fin['cash'].cumsum()
         self.fin['noa'].iloc[1:]  = self.fin['noa'].iloc[0]
@@ -299,12 +306,15 @@ class company:
                 if (self.fin['debt'].iloc[i]-self.fin['debt_Target'].iloc[i+1]<0): #underlevered
                     dDebt = -1*(self.fin['debt'].iloc[i]-self.fin['debt_Target'].iloc[i+1]) 
                 else: #overlevered
-                    dDebt = -1*min(self.fin['debt'].iloc[i]-self.fin['debt_Target'].iloc[i+1],self.fin['fcf'].iloc[i+1]+self.fin['cash'].iloc[i])
+                    if i==0:
+                        dDebt = -1*min(self.fin['debt'].iloc[i]-self.fin['debt_Target'].iloc[i+1],self.fin['fcf'].iloc[i+1]+self.fin['cash'].iloc[i]-self.fin['MnA'].iloc[i+1]-self.fin['dividend_policy'].iloc[i+1])
+                    else:
+                        dDebt = -1*min(self.fin['debt'].iloc[i]-self.fin['debt_Target'].iloc[i+1],self.fin['fcf'].iloc[i+1]-self.fin['MnA'].iloc[i+1]-self.fin['dividend_policy'].iloc[i+1])    
                 self.fin['debt'].iloc[i+1] = self.fin['debt'].iloc[i]+dDebt
             self.fcf_from_ebitda()
         logging.info('fcf_to_debt() method complete')
             
-    def fcf_to_buyback(self,price,dp = 'proportional',div_payout=0):
+    def fcf_to_buyback(self,price,dp = 'proportional'):
         '''
         Use cash balance to buyback shares and reduce sharecounts
         prerequisite: Must first have fcf defined
@@ -313,28 +323,27 @@ class company:
         payout = dividend payout ratio, in percent, between 0-100%
         '''
         self.fin['price'] = price
-        bb_payout = 1-div_payout/100
         #limit buybacks to when fcf>0
         if dp == 'constant':
             for i in range(self.year):
                 if i==0:
-                    self.fin['buybacks'].iloc[i+1] = self.fin['fcfe'].iloc[i+1]*bb_payout+self.fin['cash'].iloc[0]
+                    self.fin['buybacks'].iloc[i+1] = self.fin['fcfe'].iloc[i+1] + self.fin['cash'].iloc[0] - self.fin['dividend_policy'].iloc[i+1]
                     self.fin['shares'].iloc[i+1] = self.fin['shares'].iloc[i] - self.fin['buybacks'].iloc[i+1]/self.fin['price'].iloc[i]
                 else:
-                    self.fin['buybacks'].iloc[i+1] = self.fin['fcfe'].iloc[i+1]*bb_payout
+                    self.fin['buybacks'].iloc[i+1] = self.fin['fcfe'].iloc[i+1] - self.fin['dividend_policy'].iloc[i+1]
                     self.fin['shares'].iloc[i+1] = self.fin['shares'].iloc[i] - self.fin['buybacks'].iloc[i+1]/self.fin['price'].iloc[i]
         elif dp == 'proportional':
             EV = price*self.shares+self.fin['debt'].iloc[0]-self.fin['cash'].iloc[0]
             multiple=EV/self.fin['ebitda'].iloc[1] #calculate the forward multiple
             for i in range(self.year-1):
                 if i==0:
-                    self.fin['buybacks'].iloc[i+1] = self.fin['fcfe'].iloc[i+1]*bb_payout+self.fin['cash'].iloc[0]
+                    self.fin['buybacks'].iloc[i+1] = self.fin['fcfe'].iloc[i+1] + self.fin['cash'].iloc[0] - self.fin['dividend_policy'].iloc[i+1]
                     self.fin['shares'].iloc[i+1] = self.fin['shares'].iloc[i] - self.fin['buybacks'].iloc[i+1]/self.fin['price'].iloc[i]
                 else:
-                    self.fin['buybacks'].iloc[i+1] = self.fin['fcfe'].iloc[i+1]*bb_payout
+                    self.fin['buybacks'].iloc[i+1] = self.fin['fcfe'].iloc[i+1] - self.fin['dividend_policy'].iloc[i+1]
                     self.fin['shares'].iloc[i+1] = self.fin['shares'].iloc[i] - self.fin['buybacks'].iloc[i+1]/self.fin['price'].iloc[i]
                 #calculate the new price
-                self.fin['price'].iloc[i+1] = (multiple*self.fin['ebitda'].iloc[i+2]-self.fin['debt'].iloc[i+1])/self.fin['shares'].iloc[i+1] #no need to include cash, since cash is being used fully for buybacks or dividends
+                self.fin['price'].iloc[i+1] = (multiple*self.fin['ebitda'].iloc[i+2]-self.fin['debt'].iloc[i+1])/self.fin['shares'].iloc[i+1] #no need to include cash, since cash is being used fully for buybacks or dividend
             
             self.fin['shares'].iloc[-1] = self.fin['shares'].iloc[-2]
             self.fin['price'].iloc[-1] = self.fin['price'].iloc[-2]
