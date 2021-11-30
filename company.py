@@ -277,8 +277,7 @@ class company:
         self.fin['dividend_policy'] = self.dividend*self.shares
         for i in range(1,self.year+1):
             self.fin['dividend_policy'].iloc[i] = max(self.dividend*self.shares/self.fin['fcf'].iloc[0]*self.fin['fcf'].iloc[i],self.fin['dividend_policy'].iloc[i-1])
-        
-        print(self.fin['dividend_policy'])
+
         self.fin['dividend'] = (self.fin['fcfe']-self.fin['buybacks'])/self.fin['shares']
         self.fin['cash'].iloc[1:]  = self.fin['fcfe'].iloc[1:]
         self.fin['cash'] = self.fin['cash'].cumsum()
@@ -320,7 +319,6 @@ class company:
         prerequisite: Must first have fcf defined
         price = share price; could be todays shareprice or anything else
         dp = 'constant' or 'proportional', 'constant' = maintain constant share price, 'proportional' = constant EV/EBITDA to todays value
-        payout = dividend payout ratio, in percent, between 0-100%
         '''
         self.fin['price'] = price
         #limit buybacks to when fcf>0
@@ -349,6 +347,7 @@ class company:
             self.fin['price'].iloc[-1] = self.fin['price'].iloc[-2]
         
         self.fin['dividend'] = (self.fin['fcfe']-self.fin['buybacks'])/self.fin['shares']
+        self.fin['dividend'].iloc[0] = self.dividend
         self.fin['dividend'].iloc[1] = (self.fin['fcfe'].iloc[1]+self.cash0-self.fin['buybacks'].iloc[1])/self.fin['shares'].iloc[1]        
         self.cash0 = 0 #all used for buybacks
         self.buybacks = True
@@ -385,6 +384,7 @@ class company:
         
         if year_a == 0 and adjust_cash == True:
             self.fin['cash'].iloc[0] = self.fin['cash'].iloc[0] - (multiple-leverage)*dEbitda[1]
+            self.cash0 = self.fin['cash'].iloc[0]
         
         if self.fin['cash'].iloc[year_a] < 0: 
             logging.error('cash<0, insufficient cash for the aquisition; lower the EBITDA or increase the leverage')
