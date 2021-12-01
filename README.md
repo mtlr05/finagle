@@ -14,13 +14,28 @@ It has a number of methods which in general should be run in order once initiali
 - `value()`, this method is use for calculating a DCF from the cashflows, This shold be run only once other methods described have been run
 - `display_fin()`, this method is used to process the financials. It should be used once all modelling is completed
 
+### Overview of the Cashflows 
+The following digram shows some key funtional flows between inputs and methods to generate the various forecasts.
+![FCF_distribution](FCF_distribution.PNG)
 
+Effectively if none of the methods are called (and Debt is constant) then FCF = FCFE = Dividends and Buybacks = 0
+
+These cashflows are the basis for the valuations caculated with the `value()` method
+
+### Overview the valuation methods
 Below is a figure which explains the various cashflows and values which are calculated using these cashflows.
 
 
 ![relationship between cashflows](FCF_relations.png)
 
+### Treatment and interpretation of cash and debt
+Cash as forecast in the fin dataframe, is the cumulative FCFE over the course of the forcast period. For the purposes of valuation it is assumed to be paid to shareholders in the year it is generated. In other words, cash which is displayed in the cash column of fin dataframe, is not the cash accumulated on the balance sheet. The one exception to this is the first column, for the baseline year (i.e. year 0), which is a reflection of the cash on the balancesheet.
 
+Debt as forecast in the fin dataframe, should be interpreted as net debt, i.e., debt-cash on the balancesheet. 
+
+Because of these two points, 
+1) Cash should never be negative, since this would imply that investors are paying-in capital in the form of a capital raise, which is not currently handled by the class. Since on-balancesheet cash is part of net-debt, requirements for cash should be handled by increasing debt.
+2) FCFE should never be negative (beyond year 1) of the forecast, since this would imply that investors are paying-in capital in the form of a capital raise. The exception to this could be year 1, which can offset up to the amount of cash which was on the balancesheet in year 0.
 
 ## Valuation notebook
 
