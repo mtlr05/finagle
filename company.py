@@ -377,10 +377,10 @@ class company:
         dCapex = cap_frac*np.array(dEbitda)
         dDebt = [leverage*dEbitda[year_a+1] if x >= year_a else 0 for x in range(self.year+1)]  
         self.fin['debt'] = self.fin['debt']+dDebt
-        #self.fin['capex'].iloc[year_a] = self.fin['capex'].iloc[year_a]+multiple*dEbitda[year_a+1]
         self.fin['MnA'].iloc[year_a] = self.fin['MnA'].iloc[year_a]+multiple*dEbitda[year_a+1]
         self.fin['capex'] = self.fin['capex']+dCapex
         self.fin['ebitda'] = self.fin['ebitda']+dEbitda
+        self.fin['da'].iloc[year_a+1:] = np.nan
         
         if year_a == 0 and adjust_cash == True:
             self.fin['cash'].iloc[0] = self.fin['cash'].iloc[0] - (multiple-leverage)*dEbitda[1]
