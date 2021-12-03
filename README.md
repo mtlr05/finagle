@@ -29,7 +29,8 @@ Below is a figure which explains the various cashflows and values which are calc
 ![relationship between cashflows](FCF_relations.png)
 
 ### Treatment and interpretation of cash and debt
-Cash as forecast in the fin dataframe, is the cumulative FCFE over the course of the forcast period. For the purposes of valuation it is assumed to be paid to shareholders in the year it is generated. In other words, cash which is displayed in the cash column of fin dataframe, is not the cash accumulated on the balance sheet. The one exception to this is the first column, for the baseline year (i.e. year 0), which is a reflection of the cash on the balancesheet.
+
+It is well know that equity value is the NPV of the FCFE adjusted for the on-balancesheet cash. What is implicit in this definition is that the FCFE (and the current on balancesheet cash) is distributed to the investor in the period in which it is generated. Cash as forecast in the fin dataframe, is the cumulative FCFE over the course of the forecast period. So as it relates to the valuation, is not accumulated on the balance sheet. The one exception to this is the first column, for the baseline year (i.e. year 0), which is meant to be the cash on the balancesheet.
 
 Debt as forecast in the fin dataframe, should be interpreted as net debt, i.e., debt-cash on the balancesheet. 
 
