@@ -297,8 +297,9 @@ class company:
         if self.fin['fcf'].empty:
             logging.error('first calculate fcf')
         
-        self.fin['debt_Target'] = leverage*self.fin['ebitda']
         
+        self.fin['debt_Target'] = [leverage*self.fin['ebitda'].iloc[i] if self.fin['ebitda'].iloc[i]>0 else 0 for i in range(self.year+1)] 
+
         #run the loop 3 times just to converge on the interest and FCF
         for i in range(3):
             for i in range(year_d-1, self.year):
