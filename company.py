@@ -70,6 +70,7 @@ class company:
             self.fin['price'] = price
             self.fin['MnA'] = 0
             self.fin['buybacks'] = 0
+            self.fin['cashBS'] = 0
             self.cash0 = self.fin['cash'].iloc[0] 
             
             #check financial data completeness
@@ -125,7 +126,7 @@ class company:
                 self.years = list(range(self.year+1))
                 logging.warning("Warning: length of EBITDA forecast appear larger then the 'year' parameter used at initialization")
         
-            from_ebitda_columns = ['price', 'tax', 'interest', 'capex', 'noa', 'nol', 'ebitda', 'shares', 'dwc', 'debt', 'cash', 'da','MnA','buybacks']
+            from_ebitda_columns = ['price', 'tax', 'interest', 'capex', 'noa', 'nol', 'ebitda', 'shares', 'dwc', 'debt', 'cash', 'da','MnA','buybacks','cashBS']
             from_ebitda_forecasts = ['ebitda','capex','dwc','debt']
         
             check_columns = set(from_ebitda_columns) == set(list(self.fin.columns.values))
@@ -211,6 +212,7 @@ class company:
         self.fin['price'] = self.price
         self.fin['MnA'] = 0
         self.fin['buybacks'] = 0
+        self.fin['cashBS'] = 0
         self.cash0 = self.fin['cash'].iloc[0]
         
         self.__datacheck()
@@ -313,7 +315,20 @@ class company:
                 self.fin['debt'].iloc[i+1] = self.fin['debt'].iloc[i]+dDebt
             self.fcf_from_ebitda()
         logging.info('fcf_to_debt() method complete')
-            
+    
+    def fcf_to_bs(self):
+        '''
+        '''
+        self.fin['cashBS'].iloc[0] = self.fin['cash'].iloc[0] 
+        for i in range(self.year):
+                self.fin['cashBS'].iloc[i+1] = self.fin['fcfe'].iloc[i+1] + self.fin['cashBS'].iloc[i] - self.fin['dividend_policy'].iloc[i+1]
+
+        self.fin['dividend'] = self.fin['dividend_policy']/self.fin['shares']
+        self.fin['dividend'].iloc[-1] = self.fin['dividend'].iloc[-1] + self.fin['cashBS'].iloc[-1]/self.fin['shares'].iloc[-1]
+        self.cash0 = 0 #discount future cash back to NPV
+        #self.cashbs = True
+        logging.info('fcf_to_bs() method complete')
+        
     def fcf_to_buyback(self,price,dp = 'proportional'):
         '''
         Use cash balance to buyback shares and reduce sharecounts
@@ -426,7 +441,7 @@ class company:
         
     def display_fin(self):
         
-        table = self.fin[['ebitda','da','interest','income_pretax','nol','income_taxable','tax_cash','tax','capex','MnA','dDebt','dwc','fcf','fcfe','fcff','buybacks','dividend','cash','noa','equity','debt','EV','wacc','firm','shares','price','value_per_share','value_per_share_DDM']].T.style.format("{:.1f}")
+        table = self.fin[['ebitda','da','interest','income_pretax','nol','income_taxable','tax_cash','tax','capex','MnA','dDebt','dwc','fcf','fcfe','fcff','buybacks','dividend','cash','cashBS','noa','equity','debt','EV','wacc','firm','shares','price','value_per_share','value_per_share_DDM']].T.style.format("{:.1f}")
         
         wb = load_workbook(filename = 'company_template.xlsx')
         ws = wb['raw data']
