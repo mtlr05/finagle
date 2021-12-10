@@ -1,6 +1,6 @@
 # Company project
 
-This project contains a class, a notebook and an excel template. This is a class is used to model the financials of a publicly traded company. The notebook provides a convinient way to use the class and has various examples which may be modified as a starting point. The excel spreasheet is a template file which is used for creating a report for documentation and display purposes.   
+This project contains a class, a notebook and an excel template. This class is used to model the financials of a publicly traded company. The notebook provides a convinient way to use the class and has various examples which may be modified as a starting point. The excel spreasheet is a template file which is used for creating a report for documentation and display purposes.   
 
 ## Company Class
 
@@ -14,13 +14,29 @@ It has a number of methods which in general should be run in order once initiali
 - `value()`, this method is use for calculating a DCF from the cashflows, This shold be run only once other methods described have been run
 - `display_fin()`, this method is used to process the financials. It should be used once all modelling is completed
 
+### Overview of the Cashflows 
+The following digram shows some key funtional flows between inputs and methods to generate the various forecasts.
+![FCF_distribution](FCF_distribution.PNG)
 
+Effectively if none of the methods are called (and Debt is constant) then FCF = FCFE = Dividends and Buybacks = 0
+
+These cashflows are the basis for the valuations caculated with the `value()` method
+
+### Overview the valuation methods
 Below is a figure which explains the various cashflows and values which are calculated using these cashflows.
 
 
 ![relationship between cashflows](FCF_relations.png)
 
+### Treatment and interpretation of cash and debt
 
+It is well know that equity value is the NPV of the FCFE adjusted for the on-balancesheet cash. What is implicit in this definition is that the FCFE (and the current on balancesheet cash) is distributed to the investor in the period in which it is generated. Cash as forecast in the fin dataframe, is the cumulative FCFE over the course of the forecast period. So as it relates to the valuation, is not accumulated on the balance sheet. The one exception to this is the first column, for the baseline year (i.e. year 0), which is meant to be the cash on the balancesheet.
+
+Debt as forecast in the fin dataframe, should be interpreted as net debt, i.e., debt-cash on the balancesheet. 
+
+Because of these two points, 
+1) Cash should never be negative, since this would imply that investors are paying-in capital in the form of a capital raise, which is not currently handled by the class. Since on-balancesheet cash is part of net-debt, requirements for cash should be handled by increasing debt.
+2) FCFE should never be negative (beyond year 1) of the forecast, since this would imply that investors are paying-in capital in the form of a capital raise. The exception to this could be year 1, which can offset up to the amount of cash which was on the balancesheet in year 0.
 
 ## Valuation notebook
 
