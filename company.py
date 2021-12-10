@@ -326,7 +326,6 @@ class company:
         self.fin['dividend'] = self.fin['dividend_policy']/self.fin['shares']
         self.fin['dividend'].iloc[-1] = self.fin['dividend'].iloc[-1] + self.fin['cashBS'].iloc[-1]/self.fin['shares'].iloc[-1]
         self.cash0 = 0 #discount future cash back to NPV
-        #self.cashbs = True
         logging.info('fcf_to_bs() method complete')
         
     def fcf_to_buyback(self,price,dp = 'proportional'):
@@ -423,8 +422,13 @@ class company:
             self.__wacc()
             self.fin['firm'] = self.__pv(cfs = self.fin.fcff, g = self.gt, r = self.fin.wacc)
             self.fin['DDM'] = self.__pv(cfs = self.fin.dividend, cft = self.fcfet/self.fin['shares'].iloc[-1], g = self.gt, r = self.re)
-            self.fin['value_per_share'] = (self.fin['equity']+self.fin['cash']+self.fin['noa'])/self.shares
-            self.fin['value_per_share_DDM'] = self.fin['DDM']+(self.cash0+self.fin['noa'])/self.fin['shares'].iloc[-1]
+            
+            #adjustments for cash and non-operating assets
+            self.fin['value_per_share'] = (self.fin['equity']+self.fin['noa'])/self.shares
+            self.fin['value_per_share'].iloc[0] = self.fin['value_per_share'].iloc[0] + self.fin['cash'].iloc[0]/self.shares
+            self.fin['value_per_share_DDM'] = self.fin['DDM']+self.fin['noa']/self.fin['shares']
+            self.fin['value_per_share_DDM'].iloc[0] = self.fin['value_per_share_DDM'].iloc[0]+self.cash0/self.fin['shares'].iloc[0]
+            self.fin['value_per_share_DDM'].iloc[-1] = self.fin['value_per_share_DDM'].iloc[-1]+self.fin['cashBS'].iloc[-1]/self.fin['shares'].iloc[-1]
 
         else:
             self.fin['equity'] = self.__pv(cfs = self.fin.fcfe, g = self.gt, r = self.re)
