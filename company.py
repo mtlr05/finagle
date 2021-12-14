@@ -409,6 +409,12 @@ class company:
         
         return dEbitda
         
+    def dispose_from_noa(self, dnoa, tax = 0, year_dis = 1, ):
+        self.fin['MnA'].iloc[year_dis] = self.fin['MnA'].iloc[year_dis] - dnoa*(1-tax)
+        self.fin['noa'] = self.fin['noa'] - dnoa
+        self.fcf_from_ebitda()
+        logging.info('dispose_from_noa() method complete')
+        
     def value(self):
         '''return firm and equity values'''
         
