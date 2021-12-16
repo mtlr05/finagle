@@ -28,15 +28,17 @@ Below is a figure which explains the various cashflows and values which are calc
 
 ![relationship between cashflows](FCF_relations.png)
 
-### Treatment and interpretation of cash and debt
+### Treatment and interpretation of cash
 
 It is well know that equity value is the NPV of the FCFE adjusted for the on-balancesheet cash. What is implicit in this definition is that the FCFE (and the current on balancesheet cash) is distributed to the investor in the period in which it is generated. Cash as forecast in the fin dataframe, is the cumulative FCFE over the course of the forecast period. So as it relates to the valuation, is not accumulated on the balance sheet. The one exception to this is the first column, for the baseline year (i.e. year 0), which is meant to be the cash on the balancesheet.
 
-Debt as forecast in the fin dataframe, should be interpreted as net debt, i.e., debt-cash on the balancesheet. 
+The effect of retaining cash on the balancesheet can be evaluated using the fcf_to_bs method. If this is used then the amount can be cash on the balancesheet can be observed using the cashBS in the fin dataframe. The effect of using this method on the valuation can be seen in the DDM model.
 
 Because of these two points, 
 1) Cash should never be negative, since this would imply that investors are paying-in capital in the form of a capital raise, which is not currently handled by the class. Since on-balancesheet cash is part of net-debt, requirements for cash should be handled by increasing debt.
-2) FCFE should never be negative (beyond year 1) of the forecast, since this would imply that investors are paying-in capital in the form of a capital raise. The exception to this could be year 1, which can offset up to the amount of cash which was on the balancesheet in year 0.
+2) Negative FCFE should be interpreted with caution (beyond year 1) of the forecast, since this would imply that investors are paying-in capital in the form of a capital raise. The exception to this could be year 1, which can offset up to the amount of cash which was on the balancesheet in year 0.
+3) For cases with negative FCFE, it may be advisable to use the fcf_to_bs method.
+4) if no cash is paid-out the terminal value of the Equity based calculation added to the terminal year dividend will equal the terminal value of the DDM model.
 
 ## Valuation notebook
 
