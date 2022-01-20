@@ -1,0 +1,7 @@
+README.md
+setup.py
+finaigle.egg-info/PKG-INFO
+finaigle.egg-info/SOURCES.txt
+finaigle.egg-info/dependency_links.txt
+finaigle.egg-info/requires.txt
+finaigle.egg-info/top_level.txt

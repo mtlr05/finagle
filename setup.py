@@ -1,18 +1,10 @@
-from setuptools import setup
+from setuptools import setup, find_packages
 
 
 setup(
-    # Needed to silence warnings (and to be a worthwhile package)
     name='finaigle',
     url='https://github.com/mtlr05/finaigle',
-    author='David May',
-    author_email='davidmay44@hotmail.com',
-    packages=['finaigle'],
-    # Needed for dependencies
+    packages=find_packages(include=['finagle', 'finagle.*']),
     install_requires=['numpy','pandas'],
-    # *strongly* suggested for sharing
-    version='0.2',
-    # The license can be anything you like
-    license='MIT',
-    description='...',
+    description='for the valuation of a company',
 )
