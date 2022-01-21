@@ -1,1 +1,1 @@
-import company
+from finagle.company import company

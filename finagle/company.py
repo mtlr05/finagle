@@ -7,6 +7,7 @@ from scipy import interpolate
 import logging
 from openpyxl import load_workbook
 from openpyxl.utils.dataframe import dataframe_to_rows
+import os
 
 class company:
     '''
@@ -453,7 +454,7 @@ class company:
         
         table = self.fin[['ebitda','da','interest','income_pretax','nol','income_taxable','tax_cash','tax','capex','MnA','dDebt','dwc','fcf','fcfe','fcff','buybacks','dividend','cash','cashBS','noa','equity','debt','EV','wacc','firm','shares','price','value_per_share','value_per_share_DDM']].T.style.format("{:.1f}")
         
-        wb = load_workbook(filename = 'company_template.xlsx')
+        wb = load_workbook(filename = os.path.join(os.path.dirname(__file__), '..\\')+'company_template.xlsx')
         ws = wb['raw data']
         
         for r in dataframe_to_rows(self.fin.T, index=True, header=True):
