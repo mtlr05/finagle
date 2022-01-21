@@ -14,6 +14,25 @@ It has a number of methods which in general should be run in order once initiali
 - `value()`, this method is use for calculating a DCF from the cashflows, This shold be run only once other methods described have been run
 - `display_fin()`, this method is used to process the financials. It should be used once all modelling is completed
 
+### How to install
+
+Personally, I first clone the repo and then I do a local install of the package. To do this, from the project folder execute one of the following commands in a terminal.
+
+```
+allmypackages/
+|--finagle/ <--execute command from here   
+|  |--finagle
+|  |  |--__init__.py
+|  |  |--packagefiles.py
+|  |--projectfiles.abc
+|  |--setup.py
+```
+
+- PIP: ```pip install -e .``` 
+- Anaconda: ```conda develop .``` (from a conda terminal)
+
+That's just how I do it, you may have another way.
+
 ### Overview of the Cashflows 
 The following digram shows some key funtional flows between inputs and methods to generate the various forecasts.
 ![FCF_distribution](FCF_distribution.PNG)
