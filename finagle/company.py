@@ -64,20 +64,22 @@ class company:
         if financials == None:
             pass
         else:
-            financials['date'] = [datetime.datetime.strptime(financials['date'], '%Y-%m-%d')+datetime.timedelta(days=365*i) for i in range(self.year+1)]
-            self.fin = pd.DataFrame({key:pd.Series(value) for key,value in financials.items()})
-            self.fin.set_index('date',inplace=True)
-            self.fin['shares'] = shares
-            self.fin['price'] = price
-            self.fin['MnA'] = 0
-            self.fin['buybacks'] = 0
-            self.fin['cashBS'] = 0
-            self.cash0 = self.fin['cash'].iloc[0] 
+            self.load_financials(financials = financials)
+            # financials['date'] = [datetime.datetime.strptime(financials['date'], '%Y-%m-%d')+datetime.timedelta(days=365*i) for i in range(self.year+1)]
+            # self.fin = pd.DataFrame({key:pd.Series(value) for key,value in financials.items()})
+            # self.fin.set_index('date',inplace=True)
+            # self.fin['shares'] = shares
+            # self.fin['price'] = price
+            # self.fin['MnA'] = 0
+            # self.fin['buybacks'] = 0
+            # self.fin['cashBS'] = 0
+            # self.fin['cashBS'].iloc[0] = self.fin['cash'].iloc[0] 
+            # self.cash0 = self.fin['cash'].iloc[0] 
             
-            #check financial data completeness
-            self.__datacheck()
-            logging.info('input data used for the forecast is:')
-            logging.info(financials)
+            # #check financial data completeness
+            # self.__datacheck()
+            # logging.info('input data used for the forecast is:')
+            # logging.info(financials)
                 
             #initialize the FCF columns, if you want to do a DCF directly without calculating from financials, this requires a financial dict with a date for the ttm year
             self.fin['fcfe'] = fcfe
@@ -214,7 +216,12 @@ class company:
         self.fin['MnA'] = 0
         self.fin['buybacks'] = 0
         self.fin['cashBS'] = 0
-        self.cash0 = self.fin['cash'].iloc[0]
+        
+        try:
+            self.fin['cashBS'].iloc[0] = self.fin['cash'].iloc[0] 
+            self.cash0 = self.fin['cash'].iloc[0]
+        except:
+            logging.info('no cash key')
         
         self.__datacheck()
         logging.info('input data used for the forecast is:')
