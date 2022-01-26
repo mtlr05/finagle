@@ -1,10 +1,10 @@
-# Company project
+# Finagle project
 
 This project contains a class, a notebook and an excel template. This class is used to model the financials of a publicly traded company. The notebook provides a convinient way to use the class and has various examples which may be modified as a starting point. The excel spreasheet is a template file which is used for creating a report for documentation and display purposes.   
 
 ## Company Class
 
-The python code 'company.py' contains a which allows modelling a company financially. With financial forecasts in various forms or levels of precision, one can input company financial foecasts. These can then form the basis for the calculation of free-cash flows (FCFE or FCFF, collectively referred to here FCF's). Once the FCF's have been calculated using the appropriate method, they can then be used for various purposes, specifically they can pay down debt, buyback shares, or even make an acquisition.
+The python module 'company.py' contains a class which allows modelling a company financially. With financial forecasts in various forms or levels of precision, one can input company financial foecasts. These can then form the basis for the calculation of free-cash flows (FCFE or FCFF, collectively referred to here FCF's). Once the FCF's have been calculated using the appropriate method, they can then be used for various purposes, specifically they can pay down debt, buyback shares, or even make an acquisition.
 
 It has a number of methods which in general should be run in order once initialization of the company has occured:
 - `forecast_X()`, to forecast financial data, where a forecast was not included in the financial dictionary.
