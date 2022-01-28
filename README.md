@@ -1,10 +1,10 @@
-# Company project
+# Finagle project
 
-This project contains a class, a notebook and an excel template. This class is used to model the financials of a publicly traded company. The notebook provides a convinient way to use the class and has various examples which may be modified as a starting point. The excel spreasheet is a template file which is used for creating a report for documentation and display purposes.   
+This project contains a package, a notebook and an excel template. This package is used to model the financials of a publicly traded company. The notebook provides a convenient way to use the class and has various examples which may be modified as a starting point. The excel spreasheet is a template file which is used for creating a report for documentation and display purposes.   
 
 ## Company Class
 
-The python code 'company.py' contains a which allows modelling a company financially. With financial forecasts in various forms or levels of precision, one can input company financial foecasts. These can then form the basis for the calculation of free-cash flows (FCFE or FCFF, collectively referred to here FCF's). Once the FCF's have been calculated using the appropriate method, they can then be used for various purposes, specifically they can pay down debt, buyback shares, or even make an acquisition.
+The python module 'company.py' contains a class which allows modelling a company financially. With financial forecasts in various forms or levels of precision, one can input company financial foecasts. These can then form the basis for the calculation of free-cash flows (FCFE or FCFF, collectively referred to here FCF's). Once the FCF's have been calculated using the appropriate method, they can then be used for various purposes, specifically they can pay down debt, buyback shares, or even make an acquisition.
 
 It has a number of methods which in general should be run in order once initialization of the company has occured:
 - `forecast_X()`, to forecast financial data, where a forecast was not included in the financial dictionary.
@@ -57,7 +57,7 @@ Because of these two points,
 1) Cash should never be negative, since this would imply that investors are paying-in capital in the form of a capital raise, which is not currently handled by the class. Since on-balancesheet cash is part of net-debt, requirements for cash should be handled by increasing debt.
 2) Negative FCFE should be interpreted with caution (beyond year 1) of the forecast, since this would imply that investors are paying-in capital in the form of a capital raise. The exception to this could be year 1, which can offset up to the amount of cash which was on the balancesheet in year 0.
 3) For cases with negative FCFE, it may be advisable to use the fcf_to_bs method.
-4) if no cash is paid-out the terminal value of the Equity based calculation added to the terminal year dividend will equal the terminal value of the DDM model.
+4) The terminal value of the Equity based approach is equal to the terminal value of the DDM model times the sharecount.
 
 ## Valuation notebook
 
