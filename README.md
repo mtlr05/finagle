@@ -57,7 +57,7 @@ Because of these two points,
 1) Cash should never be negative, since this would imply that investors are paying-in capital in the form of a capital raise, which is not currently handled by the class. Since on-balancesheet cash is part of net-debt, requirements for cash should be handled by increasing debt.
 2) Negative FCFE should be interpreted with caution (beyond year 1) of the forecast, since this would imply that investors are paying-in capital in the form of a capital raise. The exception to this could be year 1, which can offset up to the amount of cash which was on the balancesheet in year 0.
 3) For cases with negative FCFE, it may be advisable to use the fcf_to_bs method.
-4) if no cash is paid-out the terminal value of the Equity based calculation added to the terminal year dividend will equal the terminal value of the DDM model.
+4) The terminal value of the Equity based approach is equal to the terminal value of the DDM model times the sharecount.
 
 ## Valuation notebook
 
