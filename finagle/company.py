@@ -58,7 +58,13 @@ class company:
         self.years = list(range(year+1))
         self.now = datetime.date.today()
         self.buybacks = False
-        self.dividend = dividend
+        
+        if isinstance(dividend,list):
+            self.dividend = dividend
+        elif isinstance(dividend,float):
+            self.dividend = [dividend]
+        elif isinstance(dividend,int):
+            self.dividend = [dividend]
 
         #create financial dataframe
         if financials == None:
@@ -284,9 +290,16 @@ class company:
         self.fin['fcfe'] = self.fin.ebitda - self.fin.tax_cash - self.fin.capex - self.fin.dwc + self.fin.dDebt - self.fin.interest - self.fin.MnA
         self.fin['fcff'] = self.fin.ebitda - self.fin.tax_cash - self.fin.capex - self.fin.dwc - self.fin.interest*self.t - self.fin.MnA
         
-        self.fin['dividend_policy'] = self.dividend*self.shares
-        for i in range(1,self.year+1):
-            self.fin['dividend_policy'].iloc[i] = max(self.dividend*self.shares/self.fin['fcf'].iloc[0]*self.fin['fcf'].iloc[i],self.fin['dividend_policy'].iloc[i-1])
+        self.fin['dividend_policy'] = 0
+        n_div = len(self.dividend)
+        for i in range(self.year+1):
+            if (i < n_div):
+                self.fin['dividend_policy'].iloc[i] = self.dividend[i]*self.fin['shares'].iloc[i]
+            else:
+                self.fin['dividend_policy'].iloc[i] = max(self.dividend[n_div-1]*self.fin['shares'].iloc[n_div-1]/self.fin['fcf'].iloc[n_div-1]*self.fin['fcf'].iloc[i],self.fin['dividend_policy'].iloc[i-1])
+            
+        # for i in range(1,self.year+1):
+            # self.fin['dividend_policy'].iloc[i] = max(self.dividend*self.shares/self.fin['fcf'].iloc[0]*self.fin['fcf'].iloc[i],self.fin['dividend_policy'].iloc[i-1])
 
         self.fin['dividend'] = (self.fin['fcfe']-self.fin['buybacks'])/self.fin['shares']
         self.fin['cash'].iloc[1:]  = self.fin['fcfe'].iloc[1:]
@@ -370,7 +383,7 @@ class company:
             self.fin['price'].iloc[-1] = self.fin['price'].iloc[-2]
         
         self.fin['dividend'] = (self.fin['fcfe']-self.fin['buybacks'])/self.fin['shares']
-        self.fin['dividend'].iloc[0] = self.dividend
+        self.fin['dividend'].iloc[0] = self.dividend[0]
         self.fin['dividend'].iloc[1] = (self.fin['fcfe'].iloc[1]+self.cash0-self.fin['buybacks'].iloc[1])/self.fin['shares'].iloc[1]        
         self.cash0 = 0 #all used for buybacks
         self.buybacks = True
@@ -466,7 +479,8 @@ class company:
         
         for r in dataframe_to_rows(self.fin.T, index=True, header=True):
             ws.append(r)
-            
+        ws['A1'] = 'date'    
+        
         ws = wb['report']
         ws['B2'] = self.ticker
         ws['B3'] = self.now
@@ -481,7 +495,10 @@ class company:
         ws['B12'] = self.fcfet
         ws['B13'] = self.fin['equity'].iloc[-1]
         ws['B15'] = self.shares
-        ws['B17'] = self.vpsbb
-
+        ws['B17'] = self.fin['value_per_share_DDM'].iloc[0]
+        
+        ws2 = wb['report']
+        
+        
         wb.save(self.ticker+'.xlsx')
         return table
