@@ -91,9 +91,7 @@ class company:
             self.fin['fcfe'] = fcfe
             self.fin['fcff'] = fcff
             self.fin['fcf'] = fcf
-            self.fin['dividend'] = (self.fin['fcfe']-self.fin['buybacks'])/self.fin['shares']
-
-
+            self.fin['dividend'] = (self.fin['fcfe']-self.fin['buybacks'])/self.fin['shares'] #buybacks will always be 0 here, initially ignore dividend policy and distribute all cash
 
     def __stream(self,sf,st):
         '''
@@ -342,10 +340,10 @@ class company:
         '''
         self.fin['cashBS'].iloc[0] = self.fin['cash'].iloc[0] 
         for i in range(self.year):
-                self.fin['cashBS'].iloc[i+1] = self.fin['fcfe'].iloc[i+1] + self.fin['cashBS'].iloc[i] - self.fin['dividend_policy'].iloc[i+1]
+                self.fin['cashBS'].iloc[i+1] = self.fin['cashBS'].iloc[i] + self.fin['fcfe'].iloc[i+1] - self.fin['dividend_policy'].iloc[i+1] - self.fin['buybacks'].iloc[i+1]
 
         self.fin['dividend'] = self.fin['dividend_policy']/self.fin['shares']
-        self.fin['dividend'].iloc[-1] = self.fin['dividend'].iloc[-1] + self.fin['cashBS'].iloc[-1]/self.fin['shares'].iloc[-1]
+        self.fin['dividend'].iloc[-1] = self.fin['dividend'].iloc[-1] + self.fin['cashBS'].iloc[-1]/self.fin['shares'].iloc[-1] #all remaining cash distributed the year before terminal
         self.cash0 = 0 #discount future cash back to NPV
         logging.info('fcf_to_bs() method complete')
         
@@ -385,10 +383,51 @@ class company:
         self.fin['dividend'] = (self.fin['fcfe']-self.fin['buybacks'])/self.fin['shares']
         self.fin['dividend'].iloc[0] = self.dividend[0]
         self.fin['dividend'].iloc[1] = (self.fin['fcfe'].iloc[1]+self.cash0-self.fin['buybacks'].iloc[1])/self.fin['shares'].iloc[1]        
-        self.cash0 = 0 #all used for buybacks
+        self.cash0 = 0 #all used for buybacks, you need to zero it so that it's not double counted in the valuation for the DDM model
         self.buybacks = True
-        logging.info('fcf_to_buybacks() method complete')
+        logging.info('fcf_to_buyback() method complete')
+    
+    def fcf_to_allocate(self,price,dp = 'proportional', buybacks = None):
         
+        if buybacks == None:
+            pass
+        elif isinstance(buybacks,list):
+            self.buybacks = buybacks
+        elif isinstance(buybacks,float):
+            self.buybacks = [buybacks]
+        elif isinstance(buybacks,int):
+            self.buybacks = [buybacks]
+        
+        #set buyback level
+        if buybacks == None: #all FCF not used for dividends are used for BB's
+            self.fcf_to_buyback(price,dp) 
+        else: #set a specific BB level and accumulate the remaing cash onto the BS
+            self.fin['buybacks'] = 0
+            n_bb = len(self.buybacks)
+            for i in range(self.year+1):
+                if (i < n_bb):
+                    self.fin['buybacks'].iloc[i] = self.buybacks[i]
+                else:
+                    self.fin['buybacks'].iloc[i] = self.buybacks[n_bb-1]/self.fin['fcf'].iloc[n_bb-1]*self.fin['fcf'].iloc[i]
+        
+            #calculate price and shares
+            self.fin['price'] = price
+            if dp == 'constant':
+                for i in range(self.year):
+                    self.fin['shares'].iloc[i+1] = self.fin['shares'].iloc[i] - self.fin['buybacks'].iloc[i+1]/self.fin['price'].iloc[i]
+            elif dp == 'proportional':
+                EV = price*self.shares+self.fin['debt'].iloc[0]-self.fin['cash'].iloc[0]
+                multiple=EV/self.fin['ebitda'].iloc[1] #calculate the forward multiple
+                for i in range(self.year-1):
+                    self.fin['shares'].iloc[i+1] = self.fin['shares'].iloc[i] - self.fin['buybacks'].iloc[i+1]/self.fin['price'].iloc[i]
+                    self.fin['price'].iloc[i+1] = (multiple*self.fin['ebitda'].iloc[i+2]-self.fin['debt'].iloc[i+1])/self.fin['shares'].iloc[i+1] #no need to include cash, since cash is being used fully for buybacks or dividend
+                self.fin['shares'].iloc[-1] = self.fin['shares'].iloc[-2]
+                self.fin['price'].iloc[-1] = self.fin['price'].iloc[-2]      
+        
+        self.fcf_to_bs()
+        self.buybacks = True
+    
+
     def fcf_to_acquire(self, adjust_cash, year_a = 1, ebitda_frac = 0.1, multiple = 10, leverage = 3, gnext = 0.1, cap_frac = 0.2):
         '''
         ebitda_frac, EBITDA of the target, relative to the organic ebitda
@@ -418,7 +457,7 @@ class company:
         self.fin['ebitda'] = self.fin['ebitda']+dEbitda
         self.fin['da'].iloc[year_a+1:] = np.nan
         
-        if year_a == 0 and adjust_cash == True:
+        if year_a == 0 and adjust_cash == True: #adjust the cash balance to pay for the acquisition
             self.fin['cash'].iloc[0] = self.fin['cash'].iloc[0] - (multiple-leverage)*dEbitda[1]
             self.cash0 = self.fin['cash'].iloc[0]
         
