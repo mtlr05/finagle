@@ -47,7 +47,7 @@ Below is a figure which explains the various cashflows and values which are calc
 
 ![relationship between cashflows](FCF_relations.png)
 
-A valuation based on FCFE discounts these cashflows to present from the period in which they are generated. If additional precision is desired, one can allocate the FCFE, namely the cash can be used for buybacks, dividends or could be stored on the balancesheet. This is done using the `fcf_allocate()` method (or alternatively `fcf_to_buybacks()` or 'fcf_to_bs()` method). If one of these methods is invoked the valuation provided by the dividend discount model (IV per share DDM model) will differ from the basic discounted FCFE model (Intrinsic Value per Share) as provided in the Excel report.
+A valuation based on FCFE discounts these cashflows to present from the period in which they are generated. If additional precision is desired, one can allocate the FCFE, namely the cash can be used for buybacks, dividends or could be stored on the balancesheet. This is done using the `fcf_to_allocate()` method (or alternatively `fcf_to_buybacks()` or 'fcf_to_bs()` method). If one of these methods is invoked the valuation provided by the dividend discount model (IV per share DDM model) will differ from the basic discounted FCFE model (Intrinsic Value per Share) as provided in the Excel report.
 
 ### Treatment and interpretation of cash
 
