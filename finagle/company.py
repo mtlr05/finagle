@@ -9,6 +9,8 @@ from openpyxl import load_workbook
 from openpyxl.utils.dataframe import dataframe_to_rows
 import os
 
+pd.set_option('mode.chained_assignment', None)
+
 class company:
     '''
     This is a class to model the financials of a publicly traded company.
