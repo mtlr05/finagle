@@ -351,7 +351,7 @@ class company:
         Args:
         Returns:
         '''
-       
+       \
         if self.data_for_ebitda == False:
             logging.error('financial dataset cannot be used for calculating FCF from EBITDA')
         
@@ -551,7 +551,13 @@ class company:
     
 
     def fcf_to_acquire(self, adjust_cash, year_a = 1, ebitda_frac = 0.1, multiple = 10, leverage = 3, gnext = 0.1, cap_frac = 0.2):
-        '''
+        '''include the effect of an acquistion in the financial model
+        
+        Models the effect of an acquisition. 
+        Increases EBITDA according to multiple paid. 
+        Capital structure of the target is specified so that debt is adjusted accordingly.
+        Cash outlay in excess of debt is included in the MnA key of the fin dataframe to reduce FCFE/FCFF accordingly.
+        
         Args:
             ebitda_frac: EBITDA of the target, relative to the organic ebitda
             gnext: next years growth
@@ -560,7 +566,7 @@ class company:
             adjust_cash: adjust cash balance in year 0
             
         Returns:
-            dEbitda:
+            dEbitda: an array showing the change in EBITDA as result of the acquisition
         
         '''
         
@@ -582,9 +588,9 @@ class company:
         self.fin['MnA'].iloc[year_a] = self.fin['MnA'].iloc[year_a]+multiple*dEbitda[year_a+1]
         self.fin['capex'] = self.fin['capex']+dCapex
         self.fin['ebitda'] = self.fin['ebitda']+dEbitda
-        self.fin['da'].iloc[year_a+1:] = np.nan
+        self.fin['da'].iloc[year_a+1:] = np.nan #reset the depreciation so that it gets recalculated from fcf_from_ebitda
         
-        if year_a == 0 and adjust_cash == True: #adjust the cash balance to pay for the acquisition
+        if year_a == 0 and adjust_cash == True: #adjust the cash balance in year 0 to pay for the acquisition
             self.fin['cash'].iloc[0] = self.fin['cash'].iloc[0] - (multiple-leverage)*dEbitda[1]
             self.cash0 = self.fin['cash'].iloc[0]
         
@@ -597,11 +603,12 @@ class company:
         return dEbitda
         
     def noa_to_dispose(self, dnoa, tax = 0, year_dis = 1):
-        '''
+        '''dispose of non-operating assets (noa). The effect of this is to reduce the amount of 'noa' and create a (negative) MnA entry in the 'fin' dataframe
+        
         Args:
-            dnoa: 
-            tax:  
-            year_dis:
+            dnoa: gross amount of the transaction
+            tax: tax rate (a fraction)
+            year_dis: year in which it is disposed
 
         Returns:
         '''
@@ -611,13 +618,17 @@ class company:
         logging.info('dispose_from_noa() method complete')
         
     def value(self):
-        '''return firm and equity values
+        '''calculate the firm and equity values
+        
+        Firm value is calculated as the DCF of the FCFF. Equity value is calculated using the DCF of the FCFE. Value per share is also calculated by dividing by the current sharecount. 
+        Effects of capital allocation decisions such as dividends and buybacks can be factored into the analysis by looking at the dividend discount model (DDM). 
+        Results from the analysis are used to populate the 'fin' dataframe.  
         
         Args:
         
         Returns:
-            self.fin['equity']:
-            self.fin['firm']:
+            self.fin['equity']: DCF of the FCFE
+            self.fin['firm']: DCF of the FCFF
         
         '''
         
@@ -653,11 +664,12 @@ class company:
         return self.fin['equity'], self.fin['firm']
         
     def display_fin(self):
-        '''
+        '''populates a copy of the excel template file with a summary of the financial analysis contained in the fin dataframe.
+        
         Args:
         
         Returns:
-            table:
+            table: a summary table of the financial analysis
         '''
         table = self.fin[['ebitda','sbc','da','interest','income_pretax','nol','income_taxable','tax_cash','tax','capex','MnA','dDebt','dwc','fcf','fcfe','fcff','buybacks','dividend','cash','cashBS','noa','equity','debt','EV','wacc','firm','shares','price','value_per_share','value_per_share_DDM']].T.style.format("{:.1f}")
         
