@@ -1,6 +1,7 @@
 import finagle as cmp
 import pytest
 import pandas as pd
+import os
 
 def test_value():
     #Sample Problem 2
@@ -16,8 +17,10 @@ def test_value():
     financials ={'date' : '2021-12-31'}
     fcfe=[0, 155.76,161.20,166.84,172.67,178.71,182.53]
     abc = cmp.company(financials = financials, ticker = 'abc', year = year, fcfe = fcfe, re = re, gt = gt)
+    
     result = pd.DataFrame(abc.value())
     answer = pd.read_pickle("./value.pkl")
+    os.remove('abc.log')
     pd.testing.assert_frame_equal(answer, result)
 
 def test_fcf_from_earnings():
@@ -44,9 +47,10 @@ def test_fcf_from_earnings():
 
     xyz = cmp.company(financials = financials, ticker = 'xyz',re = re, gt = gt, year = year, shares = shares)
     xyz.fcf_from_earnings(payout,gf,roe)
+    
     result = pd.DataFrame(xyz.value())
     answer = pd.read_pickle("./fcf_from_earnings.pkl")
-
+    os.remove('xyz.log')
     pd.testing.assert_frame_equal(answer, result)
 
 def test_fcf_from_ebitda():
@@ -88,5 +92,95 @@ def test_fcf_from_ebitda():
 
     result = pd.DataFrame(DISCK.value())
     answer = pd.read_pickle("./fcf_from_ebitda.pkl")
+    os.remove('DISCK.log')
+    pd.testing.assert_frame_equal(answer, result)
+    
+def test_forecast_ebitda():
+    #Sample Problem 4
+    #FRG
+    #full ebitda based calculation, using forecast_ebitda() and load_data() method
+    #PV = 114
 
+    #initializers
+    rd = 0.065
+    re = 0.10
+    t = 0.21
+    shares = 0.744 + 40.295 
+    gt = 0.02
+    roict=0.15 #this could be quite high if there is significant uncapitalized R&D
+    year = 10 #number of years to forescast; i.e. not including ttm (baseline) year
+
+    #company input data
+    financials = {
+    'date' : '2021-12-26',
+    'ebitda' : [330], #only the ttm year, other years are calculated using the forecast_ebitda() method
+    'capex' :  [40,46.0,50.6,55.7,61.2,67.3,73.2,78.6,83.3,87.2,90.1], #year+1 required
+    'dwc' : [0,0,0,0,0,0,0,0,0,0,0], #year+1 required
+    'sbc' : [0,0,0,0,0,0,0,0,0,0,0],    
+    'tax' : [0],
+    'da' : [51.847,54.4], #don't input for all years since the terminal year should be calculated from capex and ROIC
+    'debt' :  [1072.9,1072.9,1072.9,1072.9,1072.9,1072.9,1072.9,1072.9,1072.9,1072.9,1072.9], 
+
+    'interest' : [70],
+    'cash' : 159.72, 
+    'nol' : 127.4,
+    'noa' : 55.86, #0 if nothing, this is for the Nexpoint equity
+    }
+
+    FRG = cmp.company(ticker = 'FRG',rd = rd,re = re,t = t,shares = shares,gt = gt,roict = roict,year = year)
+    FRG.forecast_ebitda(330,[0.15,0.1,0.1,0.1,0.1], financials)
+    FRG.load_financials(financials = financials.copy())
+    FRG.fcf_from_ebitda()
+    FRG.fcf_to_debt(leverage=2.5)
+    FRG.fcf_to_buyback(price=43,dp = 'proportional')
+
+    result = pd.DataFrame(FRG.value())
+    answer = pd.read_pickle("./forecast_ebitda.pkl")
+    os.remove('FRG.log')
+    pd.testing.assert_frame_equal(answer, result)
+
+def test_fcf_to_acquire():
+    #Sample 5
+    #FRG
+    #full ebitda based calculation, using forecast_ebitda() and load_data() method
+    #includes fcf_to_acquire()
+    #pv=126.4
+
+    #initializers
+    rd = 0.065
+    re = 0.10
+    t = 0.21
+    shares = 0.744 + 40.295 
+    gt = 0.02
+    roict=0.15 #this could be quite high if there is significant uncapitalized R&D
+    year = 10 #number of years to forescast; i.e. not including ttm (baseline) year
+
+    #company input data
+    financials = {
+    'date' : '2021-12-26',
+    'ebitda' : [330], #only the ttm year, other years are calculated using the forecast_ebitda() method
+    'capex' :  [40,46.0,50.6,55.7,61.2,67.3,73.2,78.6,83.3,87.2,90.1], #year+1 required
+    'dwc' : [0,0,0,0,0,0,0,0,0,0,0], #year+1 required
+    'sbc' : [0,0,0,0,0,0,0,0,0,0,0], #year+1 required
+    'tax' : [0],
+    'da' : [51.847,54.4], #don't input for all years since the terminal year should be calculated from capex and ROIC
+    'debt' :  [1072.9,1072.9,1072.9,1072.9,1072.9,1072.9,1072.9,1072.9,1072.9,1072.9,1072.9], 
+
+    'interest' : [70],
+    'cash' : 159.72, 
+    'nol' : 127.4,
+    'noa' : 55.86, #None if nothing, this is for the Nexpoint equity
+    }
+
+    FRG = cmp.company(ticker = 'FRG',rd = rd,re = re,t = t,shares = shares,gt = gt,roict = roict,year = year)
+    FRG.forecast_ebitda(330,[0.15,0.1,0.1,0.1,0.1], financials)
+    FRG.load_financials(financials = financials.copy())
+    FRG.fcf_from_ebitda()
+    FRG.fcf_to_acquire(adjust_cash = True, year_a = 0, ebitda_frac = 0.2696, multiple = 6.52, leverage = 6.52, gnext = 0.1, cap_frac = 0.22)
+    FRG.fcf_to_debt(leverage=2.5)
+    FRG.fcf_to_buyback(price=45,dp = 'proportional')
+
+    result = pd.DataFrame(FRG.value())
+    answer = pd.read_pickle("./fcf_to_acquire.pkl")
+    os.remove('FRG.log')
     pd.testing.assert_frame_equal(answer, result)
