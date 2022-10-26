@@ -370,7 +370,7 @@ class company:
         Args:
         Returns:
         '''
-       \
+       
         if self.data_for_ebitda == False:
             logging.error('financial dataset cannot be used for calculating FCF from EBITDA')
 
