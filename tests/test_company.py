@@ -19,7 +19,10 @@ def test_value():
     abc = cmp.company(financials = financials, ticker = 'abc', year = year, fcfe = fcfe, re = re, gt = gt)
     
     result = pd.DataFrame(abc.value())
-    answer = pd.read_pickle("./value.pkl")
+    
+    filename=os.path.join(os.path.dirname(__file__), 'value.pkl')
+    #answer = pd.read_pickle("./value.pkl")
+    answer=pd.read_pickle(filename)
     os.remove('abc.log')
     pd.testing.assert_frame_equal(answer, result)
 
