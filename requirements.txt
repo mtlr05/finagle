@@ -6,5 +6,4 @@ xlrd
 datetime 
 numpy 
 scipy 
-logging 
 openpyx
