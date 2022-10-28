@@ -52,7 +52,10 @@ def test_fcf_from_earnings():
     xyz.fcf_from_earnings(payout,gf,roe)
     
     result = pd.DataFrame(xyz.value())
-    answer = pd.read_pickle("./fcf_from_earnings.pkl")
+    
+    filename=os.path.join(os.path.dirname(__file__), 'fcf_from_earnings.pkl')
+    answer=pd.read_pickle(filename)
+    #answer = pd.read_pickle("./fcf_from_earnings.pkl")
     os.remove('xyz.log')
     pd.testing.assert_frame_equal(answer, result)
 
@@ -94,7 +97,9 @@ def test_fcf_from_ebitda():
     DISCK.fcf_to_buyback(price=28.22,dp = 'proportional')
 
     result = pd.DataFrame(DISCK.value())
-    answer = pd.read_pickle("./fcf_from_ebitda.pkl")
+    filename=os.path.join(os.path.dirname(__file__), 'fcf_from_ebitda.pkl')
+    answer=pd.read_pickle(filename)
+    #answer = pd.read_pickle("./fcf_from_ebitda.pkl")
     os.remove('DISCK.log')
     pd.testing.assert_frame_equal(answer, result)
     
@@ -138,7 +143,9 @@ def test_forecast_ebitda():
     FRG.fcf_to_buyback(price=43,dp = 'proportional')
 
     result = pd.DataFrame(FRG.value())
-    answer = pd.read_pickle("./forecast_ebitda.pkl")
+    filename=os.path.join(os.path.dirname(__file__), 'forecast_ebitda.pkl')
+    answer=pd.read_pickle(filename)
+    #answer = pd.read_pickle("./forecast_ebitda.pkl")
     os.remove('FRG.log')
     pd.testing.assert_frame_equal(answer, result)
 
@@ -184,6 +191,8 @@ def test_fcf_to_acquire():
     FRG.fcf_to_buyback(price=45,dp = 'proportional')
 
     result = pd.DataFrame(FRG.value())
-    answer = pd.read_pickle("./fcf_to_acquire.pkl")
+    filename=os.path.join(os.path.dirname(__file__), 'fcf_to_acquire.pkl')
+    answer=pd.read_pickle(filename)
+    #answer = pd.read_pickle("./fcf_to_acquire.pkl")
     os.remove('FRG.log')
     pd.testing.assert_frame_equal(answer, result)
