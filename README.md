@@ -1,3 +1,5 @@
+[![Python application](https://github.com/mtlr05/finagle/actions/workflows/python-app.yml/badge.svg)](https://github.com/mtlr05/finagle/actions/workflows/python-app.yml)
+
 # Finagle project
 
 This project contains a package, a notebook and an excel template. This package is used to model the financials of a publicly traded company. The notebook provides a convenient way to use the class and has various examples which may be modified as a starting point. The excel spreasheet is a template file which is used for creating a report for documentation and display purposes.   
