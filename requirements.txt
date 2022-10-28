@@ -6,4 +6,4 @@ xlrd
 datetime 
 numpy 
 scipy 
-openpyx
+openpyxl
