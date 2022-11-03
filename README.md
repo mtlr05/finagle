@@ -23,9 +23,11 @@ Personally, I first clone the repo and then I do a local install of the package.
 ```
 allmypackages/
 |--finagle/ <--execute command from here   
-|  |--finagle
+|  |--finagle/
 |  |  |--__init__.py
 |  |  |--packagefiles.py
+|  |--tests/
+|  |  |--testfiles.xyz
 |  |--projectfiles.abc
 |  |--setup.py
 ```
