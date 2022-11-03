@@ -196,3 +196,50 @@ def test_fcf_to_acquire():
     #answer = pd.read_pickle("./fcf_to_acquire.pkl")
     os.remove('FRG.log')
     pd.testing.assert_frame_equal(answer, result)
+    
+def test_fcf_to_allocate():
+    # Sample 6
+    # PL, post-q2 2023 (quarter ending july 31,2022)
+    # full ebitda based calculation, using forecast_ebitda() and load_data() method
+    # testing fcf_to_allocate
+    # PV = 26.1, PV_DDM = 21.6
+
+    #initializers
+    rd = 0.075 #no debt
+    re = 0.10
+    t = 0.21
+    shares = 270 + 12.8 + 21.459 + 8 # 270 shares + 12.8 warrant+ 21.459 earn-out shares not included in sbc + 8 estimated increase in H2
+    gt = 0.02
+    roict=0.15 #this could be quite high if there is significant uncapitalized R&D
+    year = 15 #number of years to forescast; i.e. not including ttm (baseline) year
+
+    #company input data
+    financials = {
+    'date' : '2023-01-31',
+    'ebitda' :[-64,-35,42,162,242,354,502,694,933,1219,1548,1907,2278,2637,2956,3205], #only the ttm year, other years are calculated using the forecast_ebitda() method
+    'capex' :[26,38,50,61,87,120,161,210,268,332,400,468,531,584,622,641], #year+1 required
+    'dwc' :[0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0], #year+1 required
+    'sbc' :[100,100,100,100,100,100,100,100,100,100,100,100,100,100,100,100],
+    'tax' :[0],
+    'da' : [60], #don't input for all years since the terminal year should be calculated from capex and ROIC
+    'debt' :[0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0], 
+        
+    'interest' : [0],
+    'cash' : 598 - 45 , #includes $450 + $148 from warrants - $45 for H2 burn-rate 
+    'nol' : 114.6,
+    'noa' : 0, 
+    }
+
+    PL = cmp.company(ticker = 'PL',rd = rd,re = re,t = t,shares = shares,gt = gt,roict = roict,year = year, dividend = 0)
+    PL.forecast_sbc(sbc_f=[80,80,80,80,80],sbc_rate_t = 0.17,financials=financials)
+    PL.load_financials(financials = financials.copy())
+    PL.fcf_from_ebitda()
+    PL.fcf_to_debt(leverage=1, year_d=4)
+    PL.fcf_to_allocate(price = 10,dp = 'constant', buybacks = 0)
+    
+    result = pd.DataFrame(PL.value())
+    filename=os.path.join(os.path.dirname(__file__), 'fcf_to_allocate.pkl')
+    answer=pd.read_pickle(filename)
+    #answer = pd.read_pickle("./fcf_to_acquire.pkl")
+    os.remove('PL.log')
+    pd.testing.assert_frame_equal(answer, result)
