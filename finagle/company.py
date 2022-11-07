@@ -24,6 +24,18 @@ class company:
     calculating a DCF from the cashflows, This shold be run only once other
     methods described have been run display_fin(), this method is used to
     process the financials. It should be used once all modelling is completed
+    
+    the financials dictonary should have the following keys:
+    date = date of the last reporting quarter, list size 1
+    ebitda = earnings before, interest, tax, depreciation or amortization, list size 1 or years
+    capex = capital expenditure, list size 1 or years
+    dwc = changes in non-cash workking capital, list size years
+    tax = ttm reported taxes, list size 1
+    da = ttm depreciation and amortization, list size 1
+    debt = short and long term debt, list of size years
+    cash = excess cash, short term investments on balancesheet not used for working capital, list size 1
+    nol = net operating loss, i.e. tax losses subtracted from ebit for the purpose of calculating taxes, list size 1
+    noa = other non-operating assets, examples: land, properties, other even business's not included in the cashflows, list size 1.
 
     Args:
         financials (dict): python dictionary of financial input data.
@@ -325,14 +337,14 @@ class company:
             sbc = list(sbc_f.iloc[0:length])
 
         if sbc_rate_t is None:
-            sbc_rate_t = sbc[length-1]//financials['ebitda'][length-1]
+            sbc_rate_t = sbc[length-1]/financials['ebitda'][length-1]
 
         sbc_rate_f = []
         for i in range(length):
             sbc_rate_f.append(sbc[i]/financials['ebitda'][i])
 
         sbc_rate = self.__stream(sbc_rate_f, sbc_rate_t)
-
+        print(sbc_rate)
         for i in range(length, self.year+1):  
             # start scaling where the forecast ends
             sbc.append(sbc_rate[i]*financials['ebitda'][i])
