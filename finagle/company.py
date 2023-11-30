@@ -583,11 +583,10 @@ class company:
                         self.fin['price'].iloc[i]
                 # calculate the new price
                 # no need to include cash, since cash is being used fully for buybacks or dividend
-                self.fin['price'].iloc[i+1] = (multiple*self.fin['ebitda'].iloc[i+2] -
-                                               self.fin['debt'].iloc[i+1])/self.fin['shares'].iloc[i+1]
-
-            self.fin['shares'].iloc[-1] = self.fin['shares'].iloc[-2]
+                self.fin['price'].iloc[i+1] = max((multiple*self.fin['ebitda'].iloc[i+2] - self.fin['debt'].iloc[i+1])/self.fin['shares'].iloc[i+1],self.fin['price'].iloc[i])
+                
             self.fin['price'].iloc[-1] = self.fin['price'].iloc[-2]
+            self.fin['shares'].iloc[-1] = self.fin['shares'].iloc[-2] - self.fin['buybacks'].iloc[-1] / self.fin['price'].iloc[-1]
 
         self.fin['dividend'] = (
             self.fin['fcfe']-self.fin['buybacks'])/self.fin['shares']
@@ -655,10 +654,10 @@ class company:
                         self.fin['buybacks'].iloc[i+1] / \
                         self.fin['price'].iloc[i]
                     # no need to include cash, since cash is being used fully for buybacks or dividend
-                    self.fin['price'].iloc[i+1] = (multiple*self.fin['ebitda'].iloc[i+2] -
-                                                   self.fin['debt'].iloc[i+1])/self.fin['shares'].iloc[i+1]
-                self.fin['shares'].iloc[-1] = self.fin['shares'].iloc[-2]
+                    self.fin['price'].iloc[i+1] = max((multiple*self.fin['ebitda'].iloc[i+2] - self.fin['debt'].iloc[i+1])/self.fin['shares'].iloc[i+1],self.fin['price'].iloc[i])
+                #self.fin['shares'].iloc[-1] = self.fin['shares'].iloc[-2]
                 self.fin['price'].iloc[-1] = self.fin['price'].iloc[-2]
+                self.fin['shares'].iloc[-1] = self.fin['shares'].iloc[-2] - self.fin['buybacks'].iloc[-1] / self.fin['price'].iloc[-1]
 
         self.fcf_to_bs()
         self.buybacks = True
