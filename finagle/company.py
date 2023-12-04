@@ -69,6 +69,7 @@ class company:
         re (float): cost of equity
         rd (float): cost of debt
         t (float): marginal tax rate
+        te (float): effective tax rate for year 1
         roict (float): terminal return on invested capital, used for
         calculating depreciation
         shares (int): shares outstanding. Should include all classes if
@@ -81,7 +82,7 @@ class company:
         dividend (list): current dividend policy
     '''
 
-    def __init__(self, financials=None, ticker=None, re=None, rd=None, t=None,
+    def __init__(self, financials=None, ticker=None, re=None, rd=None, t=None, te=None,
                  shares=1, price=0, gt=0, fcfe=None, fcff=None, fcf=None,
                  roict=0.15, year=6, dividend=0):
 
@@ -91,13 +92,14 @@ class company:
                             format='%(asctime)s %(levelname)s:%(message)s')
         logging.FileHandler(filename=self.logfile, mode='w')
         logging.info(ticker)
-
+        
         # read in various attributes
         self.ticker = ticker
         self.gt = gt
         self.re = re
         self.rd = rd
         self.t = t
+        self.te = te
         self.roict = roict
         self.shares = shares
         self.price = price
@@ -420,7 +422,7 @@ class company:
         interest0 = self.fin['interest'].iloc[0]
         self.fin['interest'] = self.rd*self.fin.debt.shift(1)
         self.fin['interest'].iloc[0] = interest0
-
+        
         # really complicated way to calculate the terminal depreciation for
         # situations.where there is terminal growth. This will enforce that
         # Capex>=Depreciation so that assets continue to increase as the
@@ -437,23 +439,32 @@ class company:
         self.fin['dDebt'] = self.fin['debt']-self.fin['debt'].shift(1)
         # todo: calculate from interest0 and Debt0
         self.fin['dDebt'].iloc[0] = 0
+        
+        #Calculating taxes
 
+        if self.te is None:
+            tax1 = self.fin['tax'].iloc[0] + self.t * (self.fin['income_pretax'].iloc[1] - self.fin['income_pretax'].iloc[0]) 
+            self.te = tax1/self.fin['income_pretax'].iloc[1]
+        else:
+            pass #uses the value set during initialization
+        
         self.fin['tax_cash'] = np.nan
         self.fin['tax_cash'].iloc[0] = self.fin['tax'].iloc[0]
         self.fin['income_taxable'] = np.nan
-        self.fin['income_taxable'].iloc[0] = max(
-            self.fin['income_pretax'].iloc[0]*(1-self.fin['nol'].iloc[0] > 0), 0)
+        self.fin['income_taxable'].iloc[0] = max(self.fin['income_pretax'].iloc[0]*(1-self.fin['nol'].iloc[0] > 0), 0) #zero the income in the baseline year if NOL>0
         for i in range(1, self.year+1):
-            self.fin['nol'].iloc[i] = max(
-                self.fin['nol'].iloc[i-1] - self.fin['income_pretax'].iloc[i], 0)
-            self.fin['income_taxable'].iloc[i] = max(
-                0, self.fin['income_pretax'].iloc[i] - self.fin['nol'].iloc[i-1])
-            self.fin['tax_cash'].iloc[i] = self.fin['tax_cash'].iloc[i-1]+self.t * \
-                (self.fin['income_taxable'].iloc[i] -
-                 self.fin['income_taxable'].iloc[i-1])
-            self.fin['tax'].iloc[i] = self.fin['tax'].iloc[i-1]+self.t * \
-                (self.fin['income_pretax'].iloc[i] -
-                 self.fin['income_pretax'].iloc[i-1])
+            self.fin['nol'].iloc[i] = max(self.fin['nol'].iloc[i-1] - self.fin['income_pretax'].iloc[i], 0)
+            self.fin['income_taxable'].iloc[i] = max(0, self.fin['income_pretax'].iloc[i] - self.fin['nol'].iloc[i-1])
+            if i == 1:
+                self.fin['tax'].iloc[1] = self.te*self.fin['income_pretax'].iloc[1]
+                self.fin['tax_cash'].iloc[1] = self.fin['tax'].iloc[1]+self.t * (self.fin['nol'].iloc[1] - self.fin['nol'].iloc[0])                
+            else:
+                self.fin['tax'].iloc[i] = self.fin['tax'].iloc[i-1]+self.t * \
+                    (self.fin['income_pretax'].iloc[i] -
+                     self.fin['income_pretax'].iloc[i-1])
+                self.fin['tax_cash'].iloc[i] = self.fin['tax'].iloc[i]+self.t * (self.fin['nol'].iloc[i] - self.fin['nol'].iloc[i-1])
+                     
+        #calculating FCF
 
         self.fin['fcf'] = self.fin.ebitda - self.fin.sbc - \
             self.fin.tax_cash - self.fin.capex - self.fin.dwc - self.fin.interest
