@@ -442,27 +442,27 @@ class company:
         
         #Calculating taxes
 
-        if self.te is None:
-            tax1 = self.fin['tax'].iloc[0] + self.t * (self.fin['income_pretax'].iloc[1] - self.fin['income_pretax'].iloc[0]) 
-            self.te = tax1/self.fin['income_pretax'].iloc[1]
-        else:
-            pass #uses the value set during initialization
-        
         self.fin['tax_cash'] = np.nan
         self.fin['tax_cash'].iloc[0] = self.fin['tax'].iloc[0]
+  
+        if self.te is None:
+            tax0 = max(self.t*(self.fin['income_pretax'].iloc[0]),self.fin['tax'].iloc[0]) #important to avoid -'ve taxes with NOL's, also so they don't have unsustainably low taxes
+            tax1 = tax0 + self.t * (self.fin['income_pretax'].iloc[1] - self.fin['income_pretax'].iloc[0]) 
+            te = tax1/self.fin['income_pretax'].iloc[1]
+        else:
+            te = self.te #uses the value set during initialization
+        
         self.fin['income_taxable'] = np.nan
         self.fin['income_taxable'].iloc[0] = max(self.fin['income_pretax'].iloc[0]*(1-self.fin['nol'].iloc[0] > 0), 0) #zero the income in the baseline year if NOL>0
         for i in range(1, self.year+1):
             self.fin['nol'].iloc[i] = max(self.fin['nol'].iloc[i-1] - self.fin['income_pretax'].iloc[i], 0)
             self.fin['income_taxable'].iloc[i] = max(0, self.fin['income_pretax'].iloc[i] - self.fin['nol'].iloc[i-1])
             if i == 1:
-                self.fin['tax'].iloc[1] = self.te*self.fin['income_pretax'].iloc[1]
-                self.fin['tax_cash'].iloc[1] = self.fin['tax'].iloc[1]+self.t * (self.fin['nol'].iloc[1] - self.fin['nol'].iloc[0])                
+                self.fin['tax'].iloc[1] = te*max(self.fin['income_pretax'].iloc[1],0)
+                self.fin['tax_cash'].iloc[i] = tax0 + self.t * min((self.fin['nol'].iloc[i] - self.fin['nol'].iloc[i-1]),0)
             else:
-                self.fin['tax'].iloc[i] = self.fin['tax'].iloc[i-1]+self.t * \
-                    (self.fin['income_pretax'].iloc[i] -
-                     self.fin['income_pretax'].iloc[i-1])
-                self.fin['tax_cash'].iloc[i] = self.fin['tax'].iloc[i]+self.t * (self.fin['nol'].iloc[i] - self.fin['nol'].iloc[i-1])
+                self.fin['tax'].iloc[i] = self.fin['tax'].iloc[i-1]+self.t * (max(self.fin['income_pretax'].iloc[i],0) - max(self.fin['income_pretax'].iloc[i-1],0))
+                self.fin['tax_cash'].iloc[i] = self.fin['tax'].iloc[i]+self.t * min((self.fin['nol'].iloc[i] - self.fin['nol'].iloc[i-1]),0)
                      
         #calculating FCF
 
