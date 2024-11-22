@@ -459,7 +459,7 @@ class company:
             self.fin['income_taxable'].iloc[i] = max(0, self.fin['income_pretax'].iloc[i] - self.fin['nol'].iloc[i-1])
             if i == 1:
                 self.fin['tax'].iloc[1] = te*max(self.fin['income_pretax'].iloc[1],0)
-                self.fin['tax_cash'].iloc[i] = tax0 + self.t * min((self.fin['nol'].iloc[i] - self.fin['nol'].iloc[i-1]),0)
+                self.fin['tax_cash'].iloc[i] = self.fin['tax'].iloc[1] + self.t * min((self.fin['nol'].iloc[i] - self.fin['nol'].iloc[i-1]),0)
             else:
                 self.fin['tax'].iloc[i] = self.fin['tax'].iloc[i-1]+self.t * (max(self.fin['income_pretax'].iloc[i],0) - max(self.fin['income_pretax'].iloc[i-1],0))
                 self.fin['tax_cash'].iloc[i] = self.fin['tax'].iloc[i]+self.t * min((self.fin['nol'].iloc[i] - self.fin['nol'].iloc[i-1]),0)
