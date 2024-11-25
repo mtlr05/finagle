@@ -48,6 +48,7 @@ class company:
         re (float): cost of equity
         rd (float): cost of debt
         t (float): marginal tax rate
+        te (float): effective tax rate for year 1
         shares (int): shares outstanding. Should include all classes if
         multiple classes exist
         price (float): current share price
@@ -795,7 +796,6 @@ class company:
                 self.cash0/self.fin['shares'].iloc[0]
             self.fin['value_per_share_DDM'].iloc[-1] = self.fin['value_per_share_DDM'].iloc[-1] + \
                 self.fin['cashBS'].iloc[-1]/self.fin['shares'].iloc[-1]
-
         else:
             self.fin['equity'] = self.__pv(
                 cfs=self.fin.fcfe, g=self.gt, r=self.re)
