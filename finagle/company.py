@@ -240,22 +240,50 @@ class company:
                             self.fin.equity*self.re)/self.fin.EV
         return self.fin['wacc']
 
-    def forecast_ebitda(self, ebitda_ttm, gf, financials=None):
+    def forecast_ebitda(self, ebitda_ttm, gf, financials=None,me=None,mc=None,gsnext=None):
         '''creates an ebitda forecast and populates the financials
 
         Args:
-            ebitda_ttm:
-            gf:
+            ebitda_ttm: last year ebitda
+            gf: ebitda growth rates
             financials:
+            mc: ebitda contribution margin of the final year of forecast
+            me: ebitda margin of the final year of forecast
+            gsnext: sales growth forecast of the year following the last EBITDA growth rates forecast
+            
 
         Return:
             ebitda:
 
         '''
-        g = self.__stream(gf, self.gt)
+        g = self.__stream(gf, self.gt)            
         ebitda = [ebitda_ttm]
-        for i in range(self.year):
-            ebitda.append(ebitda[i]*(1+g[i]))
+        
+        if mc and me and gsnext is not None:
+
+            if isinstance(gf, list):
+                length = np.count_nonzero(~np.isnan(gf))
+            elif isinstance(gf, float):
+                length = 1
+                gf = [gf] 
+
+            gfs = [0 for x in range(length)]
+            gfs.append(gsnext)
+            gs = self.__stream(gfs,self.gt)            
+
+            for i in range(self.year):
+                if i < length: 
+                    ebitda.append(ebitda[i]*(1+g[i]))
+                else:
+                    print(me)
+                    #print(ebitda[i]/me*(1+gs[i])) #sales in the following year
+                    #print(ebitda[i]*mc/me*(gs[i])) #incremental ebitda
+                    ebitda.append(ebitda[i]*(1+mc/me*(gs[i])))
+                    me=ebitda[i+1]/(ebitda[i]/me*(1+gs[i]))
+        
+        else:
+            for i in range(self.year):
+                ebitda.append(ebitda[i]*(1+g[i]))
 
         if financials is not None:
             # a dict it will populate the elements similar to a pointer
@@ -347,7 +375,7 @@ class company:
             sbc_rate_f.append(sbc[i]/financials['ebitda'][i])
 
         sbc_rate = self.__stream(sbc_rate_f, sbc_rate_t)
-        print(sbc_rate)
+        #print(sbc_rate)
         for i in range(length, self.year+1):  
             # start scaling where the forecast ends
             sbc.append(sbc_rate[i]*financials['ebitda'][i])
