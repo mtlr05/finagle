@@ -178,7 +178,7 @@ class company:
                 self.years = list(range(self.year+1))
                 logging.warning("Warning: length of EBITDA forecast appear larger then the 'year' parameter used at initialization")
 
-            from_ebitda_columns = ['price', 'tax', 'interest', 'capex', 'noa',
+            from_ebitda_columns = ['revenue','price', 'tax', 'interest', 'capex', 'noa',
                                    'nol', 'ebitda', 'shares', 'dwc', 'debt',
                                    'cash', 'da', 'MnA', 'buybacks', 'cashBS',
                                    'sbc']
@@ -258,6 +258,7 @@ class company:
         '''
         g = self.__stream(gf, self.gt)            
         ebitda = [ebitda_ttm]
+        revenue = [np.nan]
         
         if mc and me and gsnext is not None:
 
@@ -273,21 +274,24 @@ class company:
 
             for i in range(self.year):
                 if i < length: 
+                    revenue.append(None)
                     ebitda.append(ebitda[i]*(1+g[i]))
                 else:
-                    print(me)
-                    #print(ebitda[i]/me*(1+gs[i])) #sales in the following year
+                    #print(me)
                     #print(ebitda[i]*mc/me*(gs[i])) #incremental ebitda
+                    revenue.append(ebitda[i]/me*(1+gs[i])) #sales in the following year
                     ebitda.append(ebitda[i]*(1+mc/me*(gs[i])))
                     me=ebitda[i+1]/(ebitda[i]/me*(1+gs[i]))
         
         else:
             for i in range(self.year):
+                revenue.append(0)
                 ebitda.append(ebitda[i]*(1+g[i]))
 
         if financials is not None:
             # a dict it will populate the elements similar to a pointer
             financials['ebitda'] = ebitda
+            financials['revenue'] = revenue
 
         return ebitda
 
@@ -849,7 +853,7 @@ class company:
         Returns:
             table: a summary table of the financial analysis
         '''
-        table = self.fin[['ebitda', 'sbc', 'da', 'interest', 'income_pretax', 'nol', 'income_taxable', 'tax_cash', 'tax', 'capex', 'MnA', 'dDebt', 'dwc', 'fcf', 'fcfe', 'fcff',
+        table = self.fin[['revenue','ebitda', 'sbc', 'da', 'interest', 'income_pretax', 'nol', 'income_taxable', 'tax_cash', 'tax', 'capex', 'MnA', 'dDebt', 'dwc', 'fcf', 'fcfe', 'fcff',
                           'buybacks', 'dividend', 'cash', 'cashBS', 'noa', 'equity', 'debt', 'EV', 'wacc', 'firm', 'shares', 'price', 'value_per_share', 'value_per_share_DDM']].T.style.format("{:.1f}")
 
         wb = load_workbook(filename=os.path.join(
