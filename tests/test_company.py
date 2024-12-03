@@ -77,6 +77,7 @@ def test_fcf_from_ebitda():
     #company input data
     financials = {
     'date' : '2021-12-31',
+    'revenue' :[0],
     'ebitda' : [13.7,13.8,14.0,14.7,16.0,18.1,19.6,21.4,23.7,26.4,29.7],
     'capex' :  [1.4,1.5,1.6,1.6,1.8,2.0,2.0,2.1,2.2,2.4,2.5],
     'sbc' : [0,0,0,0,0,0,0,0,0,0,0],    
@@ -121,6 +122,7 @@ def test_forecast_ebitda():
     #company input data
     financials = {
     'date' : '2021-12-26',
+    'revenue' :[0],
     'ebitda' : [330], #only the ttm year, other years are calculated using the forecast_ebitda() method
     'capex' :  [40,46.0,50.6,55.7,61.2,67.3,73.2,78.6,83.3,87.2,90.1], #year+1 required
     'dwc' : [0,0,0,0,0,0,0,0,0,0,0], #year+1 required
@@ -168,6 +170,7 @@ def test_fcf_to_acquire():
     #company input data
     financials = {
     'date' : '2021-12-26',
+    'revenue' :[0],
     'ebitda' : [330], #only the ttm year, other years are calculated using the forecast_ebitda() method
     'capex' :  [40,46.0,50.6,55.7,61.2,67.3,73.2,78.6,83.3,87.2,90.1], #year+1 required
     'dwc' : [0,0,0,0,0,0,0,0,0,0,0], #year+1 required
@@ -216,6 +219,7 @@ def test_fcf_to_allocate():
     #company input data
     financials = {
     'date' : '2023-01-31',
+    'revenue' :[0],
     'ebitda' :[-64,-35,42,162,242,354,502,694,933,1219,1548,1907,2278,2637,2956,3205], #only the ttm year, other years are calculated using the forecast_ebitda() method
     'capex' :[26,38,50,61,87,120,161,210,268,332,400,468,531,584,622,641], #year+1 required
     'dwc' :[0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0], #year+1 required
