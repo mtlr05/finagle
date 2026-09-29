@@ -4,7 +4,7 @@
 
 Python package for modelling the financials of a publicly traded company: forecast operating results, derive free cash flows (FCF, FCFE, FCFF), allocate cash (debt paydown, buybacks, dividends, M&A, balance-sheet cash), and run DCF / dividend-discount valuations. Results can be exported to an Excel report via a template.
 
-The package centers on the `company` class in `finagle/company.py`. Worked examples live in `tests/Valuation notebook.ipynb` and the pytest suite.
+The package centers on the `company` class in `finagle/company.py`. Copy [`Valuation_template.ipynb`](Valuation_template.ipynb) into a local working folder to start a new company. Worked examples also live in `tests/Valuation notebook.ipynb` and the pytest suite.
 
 ## Repository contents
 
@@ -13,6 +13,7 @@ finagle/
 ├── finagle/
 │   ├── __init__.py              # exports company
 │   └── company.py               # company class
+├── Valuation_template.ipynb     # copy into a local folder for a new ticker
 ├── company_template.xlsx        # display_fin() Excel template
 ├── FCF_distribution.PNG         # cashflow overview diagram
 ├── FCF_relations.png            # valuation / cashflow relations
@@ -82,7 +83,7 @@ c.value()
 c.display_fin()  # writes ATKR.xlsx
 ```
 
-See [Example](#example) for a full ATKR case with acquisitions, and `tests/Valuation notebook.ipynb` for more scenarios.
+See [Example](#example) for a full ATKR case with acquisitions. For a new company, copy [`Valuation_template.ipynb`](Valuation_template.ipynb) into a local working folder. `tests/Valuation notebook.ipynb` has additional scenarios.
 
 ## Typical workflow
 
@@ -300,7 +301,9 @@ After a full EBITDA run plus `value()`, key columns include those exported by `d
 
 ## Valuation notebook and worked examples
 
-The Jupyter notebook [`tests/Valuation notebook.ipynb`](tests/Valuation%20notebook.ipynb) is the convenient way to explore the class. It contains sample problems and ATKR variants that can be modified as starting points.
+[`Valuation_template.ipynb`](Valuation_template.ipynb) is the starting point for a new company. Copy it into a local working folder, rename it to the ticker, and run it there. `{ticker}.xlsx` and `{ticker}.log` are written in that folder. The notebook lists every public method and where it belongs in the workflow.
+
+[`tests/Valuation notebook.ipynb`](tests/Valuation%20notebook.ipynb) contains sample problems that can be modified as further examples.
 
 The pytest suite mirrors several of those paths (golden `.pkl` comparisons of `value()` results):
 
