@@ -8,8 +8,31 @@ import logging
 from openpyxl import load_workbook
 from openpyxl.utils.dataframe import dataframe_to_rows
 import os
+import copy
 
 pd.set_option('mode.chained_assignment', None)
+
+
+class _ReopenFileHandler(logging.Handler):
+    '''Append log records without holding the file open.
+
+    Tests delete ``{ticker}.log`` after ``value()``. A normal FileHandler
+    keeps the file locked on Windows, so each record reopens the file.
+    '''
+
+    def __init__(self, filename):
+        super().__init__()
+        self.filename = filename
+        with open(filename, 'w', encoding='utf-8'):
+            pass
+
+    def emit(self, record):
+        try:
+            msg = self.format(record)
+            with open(self.filename, 'a', encoding='utf-8') as handle:
+                handle.write(msg + '\n')
+        except Exception:
+            self.handleError(record)
 
 
 class company:
@@ -87,13 +110,23 @@ class company:
                  shares=1, price=0, gt=0, fcfe=None, fcff=None, fcf=None,
                  roict=0.15, year=6, dividend=0):
 
-        # setup logging
+        # setup logging on this company only; do not configure the root logger
         self.logfile = ticker + '.log'
-        logging.basicConfig(filemode='w', level=logging.INFO,
-                            format='%(asctime)s %(levelname)s:%(message)s')
-        logging.FileHandler(filename=self.logfile, mode='w')
-        logging.info(ticker)
-        
+        self.log = logging.getLogger(f'finagle.{ticker}')
+        self.log.setLevel(logging.INFO)
+        self.log.propagate = False
+        self.log.handlers.clear()
+        file_handler = _ReopenFileHandler(self.logfile)
+        file_handler.setFormatter(logging.Formatter(
+            '%(asctime)s %(levelname)s:%(message)s'))
+        self.log.addHandler(file_handler)
+        self.log.info(ticker)
+
+        self._forecasts = {}
+        self._reset_actions()
+        self.data_for_earnings = False
+        self.data_for_ebitda = False
+
         # read in various attributes
         self.ticker = ticker
         self.gt = gt
@@ -132,6 +165,67 @@ class company:
             # and distribute all cash
             self.fin['dividend'] = (
                 self.fin['fcfe']-self.fin['buybacks'])/self.fin['shares']
+            self._capture_base()
+
+    def _reset_actions(self):
+        '''Drop recorded capital actions. Load starts a new case.'''
+        self._deals = []
+        self._disposals = []
+        self._debt = None
+        self._distribution = None
+        self._earnings = None
+        self._deal_ebitdas = []
+        self.buyback_schedule = None
+
+    def _capture_base(self):
+        '''Snapshot inputs after load, before calculated columns are written.'''
+        self._base_fin = self.fin.copy(deep=True)
+        self._base_cash0 = getattr(self, 'cash0', None)
+
+    def _ebitda_series(self, financials):
+        '''EBITDA used by later forecasts.
+
+        A forecast stored on the instance wins over the caller's dict, which
+        still holds the pre-forecast list.
+        '''
+        if 'ebitda' in self._forecasts:
+            return self._forecasts['ebitda']
+        return financials['ebitda']
+
+    def _build_statements(self):
+        '''Replay stored actions onto the loaded inputs.
+
+        This is the only writer of calculated columns. Order is fixed:
+        free cash flow, deals, disposals, debt target, then one distribution.
+        '''
+        if not hasattr(self, '_base_fin'):
+            self.log.error('load financials before building statements')
+            return
+
+        self.fin = self._base_fin.copy(deep=True)
+        if self._base_cash0 is not None:
+            self.cash0 = self._base_cash0
+        self.buybacks = False
+        self._deal_ebitdas = []
+
+        if self.data_for_ebitda:
+            self._calc_fcf_from_ebitda()
+            for deal in self._deals:
+                self._deal_ebitdas.append(self._calc_fcf_to_acquire(**deal))
+            for disposal in self._disposals:
+                self._calc_noa_to_dispose(**disposal)
+            if self._debt is not None:
+                self._calc_fcf_to_debt(**self._debt)
+            if self._distribution is not None:
+                kind, kwargs = self._distribution
+                if kind == 'buyback':
+                    self._calc_fcf_to_buyback(**kwargs)
+                elif kind == 'allocate':
+                    self._calc_fcf_to_allocate(**kwargs)
+                elif kind == 'bs':
+                    self._calc_fcf_to_bs()
+        elif self._earnings is not None:
+            self._calc_fcf_from_earnings(**self._earnings)
 
     def __stream(self, sf, st):
         '''create a periodic stream of values based of yearly forecasts and
@@ -146,7 +240,7 @@ class company:
         '''
 
         if np.isnan(st) is True:
-            logging.error('Terminal value is a NaN, cannot create forecast')
+            self.log.error('Terminal value is a NaN, cannot create forecast')
 
         if isinstance(sf, list):
             length = np.count_nonzero(~np.isnan(sf))
@@ -176,29 +270,39 @@ class company:
             if self.year < len(self.fin.ebitda)-1:
                 self.year = len(self.fin.ebitda)-1
                 self.years = list(range(self.year+1))
-                logging.warning("Warning: length of EBITDA forecast appear larger then the 'year' parameter used at initialization")
+                self.log.warning("Warning: length of EBITDA forecast appear larger then the 'year' parameter used at initialization")
 
-            from_ebitda_columns = ['revenue','price', 'tax', 'interest', 'capex', 'noa',
-                                   'nol', 'ebitda', 'shares', 'dwc', 'debt',
-                                   'cash', 'da', 'MnA', 'buybacks', 'cashBS',
-                                   'sbc']
-            from_ebitda_forecasts = ['ebitda', 'capex', 'dwc', 'debt', 'sbc']
+            required = ['revenue', 'tax', 'interest', 'capex', 'noa', 'nol',
+                        'ebitda', 'dwc', 'debt', 'cash', 'da', 'sbc']
+            missing = [col for col in required if col not in self.fin.columns]
+            forecast_cols = ['ebitda', 'capex', 'dwc', 'debt', 'sbc']
+            gaps = []
+            for col in forecast_cols:
+                if col not in self.fin.columns:
+                    continue
+                mask = self.fin[col].isna()
+                if mask.any():
+                    positions = [int(i) for i in np.flatnonzero(mask.to_numpy())]
+                    gaps.append(f'{col} NaN at year index {positions}')
+            if missing or gaps:
+                parts = []
+                if missing:
+                    parts.append('missing columns: ' + ', '.join(missing))
+                if gaps:
+                    parts.append('incomplete forecasts: ' + '; '.join(gaps))
+                raise ValueError(
+                    'EBITDA inputs are incomplete (' + '; '.join(parts) + ')')
 
-            check_columns = set(from_ebitda_columns) == set(
-                list(self.fin.columns.values))  # check all columns are present
-            check_forecasts = np.count_nonzero(
-                np.isnan(self.fin[from_ebitda_forecasts])) == 0
-            # check for nan's
-            self.data_for_ebitda = check_columns and check_forecasts
+            self.data_for_ebitda = True
 
         if 'e' in self.fin.columns:
             self.data_for_earnings = True
 
         if self.data_for_ebitda is True:
-            logging.info('datacheck complete: financial dataset appears complete for fcf_from_ebitda')
+            self.log.info('datacheck complete: financial dataset appears complete for fcf_from_ebitda')
 
         if self.data_for_earnings is True:
-            logging.info('datacheck complete: financial dataset appears complete for fcf_from_earnings')
+            self.log.info('datacheck complete: financial dataset appears complete for fcf_from_earnings')
 
     def __pv(self, cfs, g, r, cft=None):
         '''calculate the present value of future cash flows. To be even more
@@ -254,7 +358,7 @@ class company:
         self.fin.loc[self.fin.index[indexer], column] = value
 
     def forecast_ebitda(self, ebitda_ttm, gf, financials=None,me=None,mc=None,gsnext=None):
-        '''creates an ebitda forecast and populates the financials
+        '''creates an ebitda forecast and stores it on the instance
 
         Args:
             ebitda_ttm: last year ebitda
@@ -302,21 +406,22 @@ class company:
                 ebitda.append(ebitda[i]*(1+g[i]))
 
         if financials is not None:
-            # a dict it will populate the elements similar to a pointer
-            financials['ebitda'] = ebitda
-            financials['revenue'] = revenue
+            # keep the caller's dict unchanged; load_financials overlays these
+            self._forecasts['ebitda'] = list(ebitda)
+            self._forecasts['revenue'] = list(revenue)
 
         return ebitda
 
     def forecast_capex(self, capex_f, financials):
-        '''creates a capital expenditures (capex) forecast and populates the
-        financials dictionary.
+        '''creates a capital expenditures (capex) forecast and stores it on
+        the instance.
 
         This is done by proving a forecast in the form of a list. The length of
         the forecast can be for all years or just a subset. The balance of the
         years not provided are then forecast as a constant fraction of ebitda,
         using the last value in the capex_f list. The forecast is then used to
-        populate the financials dictionary or returned as a list.
+        stored for load_financials and returned as a list. The caller's
+        dictionary is not modified.
 
         Args:
             capex_f:
@@ -327,7 +432,7 @@ class company:
         '''
         if isinstance(capex_f, list):
             length = np.count_nonzero(~np.isnan(capex_f))
-            capex = capex_f
+            capex = list(capex_f)
         elif isinstance(capex_f, float):
             length = 1
             capex = [capex_f]
@@ -338,27 +443,26 @@ class company:
             length = np.count_nonzero(~np.isnan(capex_f))
             capex = list(capex_f.iloc[0:length])
 
+        ebitda = self._ebitda_series(financials)
         # start scaling with ebitda where the forecast ends
         for i in range(length, self.year+1):
-            capex.append(capex[length-1]/financials['ebitda']
-                         [length-1]*financials['ebitda'][i])
+            capex.append(capex[length-1]/ebitda[length-1]*ebitda[i])
 
         if financials is not None:
-            # a dict it will populate the elements similar to a pointer
-            financials['capex'] = capex
+            self._forecasts['capex'] = list(capex)
 
         return capex
 
     def forecast_sbc(self, sbc_f, financials, sbc_rate_t=None):
-        '''creates an stock-based compensation (sbc) forecast and populates the
-        financials dictionary.
+        '''creates an stock-based compensation (sbc) forecast and stores it on
+        the instance.
 
         This is done by proving a forecast in the form of a list. The length of
         the forecast can be for all years or just a subset. The balance of the
         years not provided are then forecast using interpolation of the
         terminal fraction (sbc_rate_t) or at a constant rate using the last
-        value in sbc_f. The forecast is then used to populate the financials
-        dictionary or returned as a list.
+        value in sbc_f. The forecast is stored for load_financials and returned
+        as a list. The caller's dictionary is not modified.
 
         Args:
             sbc_f (float or list): current year sbc or forecast of multiple
@@ -373,7 +477,7 @@ class company:
         '''
         if isinstance(sbc_f, list):
             length = np.count_nonzero(~np.isnan(sbc_f))
-            sbc = sbc_f
+            sbc = list(sbc_f)
         elif isinstance(sbc_f, float):
             length = 1
             sbc = [sbc_f]
@@ -384,23 +488,22 @@ class company:
             length = np.count_nonzero(~np.isnan(sbc_f))
             sbc = list(sbc_f.iloc[0:length])
 
+        ebitda = self._ebitda_series(financials)
         if sbc_rate_t is None:
-            sbc_rate_t = sbc[length-1]/financials['ebitda'][length-1]
+            sbc_rate_t = sbc[length-1]/ebitda[length-1]
 
         sbc_rate_f = []
         for i in range(length):
-            sbc_rate_f.append(sbc[i]/financials['ebitda'][i])
+            sbc_rate_f.append(sbc[i]/ebitda[i])
 
         sbc_rate = self.__stream(sbc_rate_f, sbc_rate_t)
         #print(sbc_rate)
         for i in range(length, self.year+1):  
             # start scaling where the forecast ends
-            sbc.append(sbc_rate[i]*financials['ebitda'][i])
+            sbc.append(sbc_rate[i]*ebitda[i])
 
         if financials is not None:
-            # since this is a dict it will populate the elements similar to a
-            # pointer
-            financials['sbc'] = sbc
+            self._forecasts['sbc'] = list(sbc)
 
         return sbc
 
@@ -410,6 +513,9 @@ class company:
 
         Returns:
         '''
+        financials = copy.deepcopy(financials)
+        for key, series in self._forecasts.items():
+            financials[key] = list(series)
         financials['date'] = [datetime.datetime.strptime(
             financials['date'], '%Y-%m-%d')+datetime.timedelta(days=365*i) for i in range(self.year+1)]
         self.fin = pd.DataFrame({key: pd.Series(value)
@@ -425,12 +531,15 @@ class company:
             self.__iset('cashBS', 0, self.fin['cash'].iloc[0])
             self.cash0 = self.fin['cash'].iloc[0]
         except:
-            logging.info('no cash key')
+            self.log.info('no cash key')
 
+        self._reset_actions()
+        self.buybacks = False
         self.__datacheck()
-        logging.info('input data used for the forecast is:')
-        logging.info(financials)
-        logging.info('load_financials() method complete')
+        self._capture_base()
+        self.log.info('input data used for the forecast is:')
+        self.log.info(financials)
+        self.log.info('load_financials() method complete')
 
     def fcf_from_earnings(self, payout=1, gf=0, ROE=1):
         '''
@@ -441,9 +550,12 @@ class company:
 
         Returns:
         '''
+        self._earnings = {'payout': payout, 'gf': gf, 'ROE': ROE}
+        self._build_statements()
 
+    def _calc_fcf_from_earnings(self, payout=1, gf=0, ROE=1):
         if self.data_for_earnings is False:
-            logging.error('financial dataset cannot be used for calculating FCF from earnings')
+            self.log.error('financial dataset cannot be used for calculating FCF from earnings')
 
         g = self.__stream(gf, self.gt)
 
@@ -454,16 +566,19 @@ class company:
         payouts = self.__stream(payout, payout_t)
 
         self.fin['fcfe'] = self.fin['e']*payouts
-        logging.info('fcf_from_earnings() method complete')
+        self.log.info('fcf_from_earnings() method complete')
 
     def fcf_from_ebitda(self):
         '''
         Args:
         Returns:
         '''
+        self._build_statements()
 
+    def _calc_fcf_from_ebitda(self):
         if self.data_for_ebitda is False:
-            logging.error('financial dataset cannot be used for calculating FCF from EBITDA')
+            self.log.error('financial dataset cannot be used for calculating FCF from EBITDA')
+            return
 
         interest0 = self.fin['interest'].iloc[0]
         self.fin['interest'] = self.rd*self.fin.debt.shift(1)
@@ -477,7 +592,7 @@ class company:
         C = self.gt/self.roict*(1-self.t)
         dat = (self.fin['capex'].iloc[-1]-C*self.fin['ebitda'].iloc[-1])/(1-C)
         if dat < 0:
-            logging.error('negative depreciation in terminal year, check roic and growth assumptions')
+            self.log.error('negative depreciation in terminal year, check roic and growth assumptions')
 
         self.fin['da'] = self.__stream(self.fin['da'], dat)
         self.fin['income_pretax'] = self.fin.ebitda - \
@@ -532,7 +647,7 @@ class company:
         self.__iset('cash', slice(1, None), self.fin['fcfe'].iloc[1:])
         self.fin['cash'] = self.fin['cash'].cumsum()
         self.__iset('noa', slice(1, None), self.fin['noa'].iloc[0])
-        logging.info('fcf_from_ebitda() method complete')
+        self.log.info('fcf_from_ebitda() method complete')
 
     def fcf_to_debt(self, leverage=3, year_d=1):
         '''Adjust debt levels to desired target.
@@ -545,12 +660,16 @@ class company:
         Returns:
         '''
 
+        self._debt = {'leverage': leverage, 'year_d': year_d}
+        self._build_statements()
+
+    def _calc_fcf_to_debt(self, leverage=3, year_d=1):
         # increase debt if fcf is negative and cash is 0
         if self.data_for_ebitda is False:
-            logging.error('financial dataset cannot be used to optimize leverage')
+            self.log.error('financial dataset cannot be used to optimize leverage')
 
         if self.fin['fcf'].empty:
-            logging.error('first calculate fcf')
+            self.log.error('first calculate fcf')
 
         self.fin['debt_Target'] = [leverage*self.fin['ebitda'].iloc[i]
                                    if self.fin['ebitda'].iloc[i] > 0 else 0 for i in range(self.year+1)]
@@ -569,8 +688,8 @@ class company:
                         dDebt = -1*min(self.fin['debt'].iloc[i]-self.fin['debt_Target'].iloc[i+1],
                                        self.fin['fcf'].iloc[i+1]-self.fin['MnA'].iloc[i+1]-self.fin['dividend_policy'].iloc[i+1])
                 self.__iset('debt', i+1, self.fin['debt'].iloc[i]+dDebt)
-            self.fcf_from_ebitda()
-        logging.info('fcf_to_debt() method complete')
+            self._calc_fcf_from_ebitda()
+        self.log.info('fcf_to_debt() method complete')
 
     def fcf_to_bs(self):
         '''
@@ -578,6 +697,10 @@ class company:
 
         Returns:
         '''
+        self._distribution = ('bs', {})
+        self._build_statements()
+
+    def _calc_fcf_to_bs(self):
         self.__iset('cashBS', 0, self.fin['cash'].iloc[0])
         for i in range(self.year):
             self.__iset('cashBS', i+1, self.fin['cashBS'].iloc[i] + self.fin['fcfe'].iloc[i +
@@ -587,7 +710,7 @@ class company:
         self.__iset('dividend', -1, self.fin['dividend'].iloc[-1] + self.fin['cashBS'].iloc[-1] / \
             self.fin['shares'].iloc[-1])  # all remaining cash distributed the year before terminal
         self.cash0 = 0  # discount future cash back to NPV
-        logging.info('fcf_to_bs() method complete')
+        self.log.info('fcf_to_bs() method complete')
 
     def fcf_to_buyback(self, price, dp='proportional'):
         '''Use cash balance to buyback shares and reduce sharecounts
@@ -602,6 +725,11 @@ class company:
 
         Returns:
         '''
+        self._distribution = ('buyback', {'price': price, 'dp': dp})
+        self.buyback_schedule = None
+        self._build_statements()
+
+    def _calc_fcf_to_buyback(self, price, dp='proportional'):
         self.fin['price'] = price
         # limit buybacks to when fcf>0
         if dp == 'constant':
@@ -652,7 +780,7 @@ class company:
             self.fin['fcfe'].iloc[1]+self.cash0-self.fin['buybacks'].iloc[1])/self.fin['shares'].iloc[1])
         self.cash0 = 0  # all used for buybacks, you need to zero it so that it's not double counted in the valuation for the DDM model
         self.buybacks = True
-        logging.info('fcf_to_buyback() method complete')
+        self.log.info('fcf_to_buyback() method complete')
 
     def fcf_to_allocate(self, price, dp='proportional', buybacks=None):
         '''A generalized method for allocating cash to dividends, buybacks or
@@ -672,26 +800,33 @@ class company:
         Returns:
 
         '''
+        self._distribution = ('allocate', {
+            'price': price, 'dp': dp, 'buybacks': buybacks})
+        self._build_statements()
+
+    def _calc_fcf_to_allocate(self, price, dp='proportional', buybacks=None):
+        schedule = None
         if buybacks is None:
             pass
         elif isinstance(buybacks, list):
-            self.buybacks = buybacks
+            schedule = list(buybacks)
         elif isinstance(buybacks, float):
-            self.buybacks = [buybacks]
+            schedule = [buybacks]
         elif isinstance(buybacks, int):
-            self.buybacks = [buybacks]
+            schedule = [buybacks]
+        self.buyback_schedule = schedule
 
         # set buyback level
         if buybacks is None:  # all FCF not used for dividends are used for BB's
-            self.fcf_to_buyback(price, dp)
+            self._calc_fcf_to_buyback(price, dp)
         else:  # set a specific BB level and accumulate the remaing cash onto the BS
             self.fin['buybacks'] = 0
-            n_bb = len(self.buybacks)
+            n_bb = len(schedule)
             for i in range(self.year+1):
                 if (i < n_bb):
-                    self.__iset('buybacks', i, self.buybacks[i])
+                    self.__iset('buybacks', i, schedule[i])
                 else:
-                    self.__iset('buybacks', i, self.buybacks[n_bb-1] / \
+                    self.__iset('buybacks', i, schedule[n_bb-1] / \
                         self.fin['fcf'].iloc[n_bb-1]*self.fin['fcf'].iloc[i])
 
             # calculate price and shares
@@ -716,7 +851,7 @@ class company:
                 self.__iset('price', -1, self.fin['price'].iloc[-2])
                 self.__iset('shares', -1, self.fin['shares'].iloc[-2] - self.fin['buybacks'].iloc[-1] / self.fin['price'].iloc[-1])
 
-        self.fcf_to_bs()
+        self._calc_fcf_to_bs()
         self.buybacks = True
 
     def fcf_to_acquire(self, adjust_cash, year_a=1, ebitda_frac=0.1, multiple=10, leverage=3, gnext=0.1, cap_frac=0.2):
@@ -741,11 +876,23 @@ class company:
             acquisition
 
         '''
+        self._deals.append({
+            'adjust_cash': adjust_cash,
+            'year_a': year_a,
+            'ebitda_frac': ebitda_frac,
+            'multiple': multiple,
+            'leverage': leverage,
+            'gnext': gnext,
+            'cap_frac': cap_frac,
+        })
+        self._build_statements()
+        return self._deal_ebitdas[-1]
 
+    def _calc_fcf_to_acquire(self, adjust_cash, year_a=1, ebitda_frac=0.1, multiple=10, leverage=3, gnext=0.1, cap_frac=0.2):
         if self.data_for_ebitda is False:
-            logging.error('financial dataset cannot be used to acquire')
+            self.log.error('financial dataset cannot be used to acquire')
         if self.fin['fcf'].empty:
-            logging.error('first calculate fcf')
+            self.log.error('first calculate fcf')
 
         g = [ebitda_frac-1, gnext]
         for i in range(year_a):
@@ -772,10 +919,10 @@ class company:
             self.cash0 = self.fin['cash'].iloc[0]
 
         if self.fin['cash'].iloc[year_a] < 0:
-            logging.error('cash<0, insufficient cash for the aquisition; lower the EBITDA or increase the leverage')
+            self.log.error('cash<0, insufficient cash for the aquisition; lower the EBITDA or increase the leverage')
 
-        self.fcf_from_ebitda()
-        logging.info('fcf_to_acquire() method complete')
+        self._calc_fcf_from_ebitda()
+        self.log.info('fcf_to_acquire() method complete')
 
         return dEbitda
 
@@ -791,11 +938,15 @@ class company:
 
         Returns:
         '''
+        self._disposals.append({'dnoa': dnoa, 'tax': tax, 'year_dis': year_dis})
+        self._build_statements()
+
+    def _calc_noa_to_dispose(self, dnoa, tax=0, year_dis=1):
         self.__iset('MnA', year_dis, self.fin['MnA'].iloc[year_dis] - \
             dnoa*(1-tax))
         self.fin['noa'] = self.fin['noa'] - dnoa
-        self.fcf_from_ebitda()
-        logging.info('dispose_from_noa() method complete')
+        self._calc_fcf_from_ebitda()
+        self.log.info('dispose_from_noa() method complete')
 
     def value(self):
         '''calculate the firm and equity values
@@ -814,6 +965,7 @@ class company:
             self.fin['firm']: DCF of the FCFF
 
         '''
+        self._build_statements()
 
         if self.data_for_ebitda is True:
             # really complicated way to calculate the terminal FCFE for situtions...
@@ -854,7 +1006,7 @@ class company:
         else:
             self.vpsbb = 0
 
-        logging.info('value() method complete')
+        self.log.info('value() method complete')
         return self.fin['equity'], self.fin['firm']
 
     def display_fin(self):

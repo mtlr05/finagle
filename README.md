@@ -90,7 +90,7 @@ See [Example](#example) for a full ATKR case with acquisitions. For a new compan
 Methods should generally be run in this order:
 
 1. `company(...)` — optionally pass `financials` to load immediately
-2. `forecast_ebitda` / `forecast_capex` / `forecast_sbc` — mutate the dict **before** load when forecasts are incomplete
+2. `forecast_ebitda` / `forecast_capex` / `forecast_sbc` — store series on the instance **before** load when forecasts are incomplete. The caller's dict is left unchanged; `load_financials` overlays those stored series.
 3. `load_financials` — if not loaded in `__init__`
 4. `fcf_from_ebitda` **or** `fcf_from_earnings` (or pass `fcfe` / `fcff` / `fcf` into the constructor for a direct DCF)
 5. Optional capital actions (many re-call `fcf_from_ebitda`): `fcf_to_acquire`, `fcf_to_debt`, `noa_to_dispose`, then `fcf_to_allocate` / `fcf_to_buyback` / `fcf_to_bs`
@@ -173,7 +173,7 @@ Each value may be a scalar or a list. Index 0 is the trailing-twelve-months (TTM
 - **Earnings path:** provide `e` (earnings) for `fcf_from_earnings`.
 - **Auto-added on load:** `shares`, `price`, `MnA`, `buybacks`, `cashBS`.
 
-Incomplete EBITDA inputs set `data_for_ebitda = False` (and similarly for earnings). Errors are typically logged when you call `fcf_from_*`, not always raised at load time.
+If `ebitda` is present, missing required columns or NaNs in `ebitda`, `capex`, `dwc`, `debt`, or `sbc` raise `ValueError` at load and name the problem. Extra keys are ignored. A dict with no `ebitda` column (direct FCFE, or earnings via `e`) is not held to the EBITDA column list.
 
 ## Method reference
 
@@ -181,21 +181,21 @@ Incomplete EBITDA inputs set `data_for_ebitda = False` (and similarly for earnin
 
 #### `forecast_ebitda(ebitda_ttm, gf, financials=None, me=None, mc=None, gsnext=None)`
 
-Build a multi-year EBITDA forecast (and optionally revenue). Growth rates `gf` (float or list) are interpolated to terminal growth `gt`. If `me`, `mc`, and `gsnext` are all set, later years use a margin / sales-growth path; otherwise EBITDA compounds by growth and `revenue` is filled with `0`. When `financials` is passed, writes `financials['ebitda']` and `financials['revenue']` in place.
+Build a multi-year EBITDA forecast (and optionally revenue). Growth rates `gf` (float or list) are interpolated to terminal growth `gt`. If `me`, `mc`, and `gsnext` are all set, later years use a margin / sales-growth path; otherwise EBITDA compounds by growth and `revenue` is filled with `0`. When `financials` is passed, the series are stored on the instance for `load_financials`. The caller's dict is not modified. `financials=None` (used internally for acquisition EBITDA) only returns the list.
 
 #### `forecast_capex(capex_f, financials)`
 
-Extend a partial capex forecast by holding the last known capex/EBITDA ratio for remaining years. Requires `financials['ebitda']`. Writes `financials['capex']`.
+Extend a partial capex forecast by holding the last known capex/EBITDA ratio for remaining years. EBITDA comes from a stored `forecast_ebitda` result when that exists, otherwise from `financials['ebitda']`. The completed capex series is stored on the instance.
 
 #### `forecast_sbc(sbc_f, financials, sbc_rate_t=None)`
 
-Forecast stock-based compensation as a fraction of EBITDA. Partial forecasts are extended by interpolating toward `sbc_rate_t`, or by holding the last year's ratio if `sbc_rate_t` is `None`. Writes `financials['sbc']`.
+Forecast stock-based compensation as a fraction of EBITDA. Partial forecasts are extended by interpolating toward `sbc_rate_t`, or by holding the last year's ratio if `sbc_rate_t` is `None`. The completed series is stored on the instance.
 
 ### Load
 
 #### `load_financials(financials)`
 
-Convert the `financials` dict into `self.fin` (date-indexed DataFrame), initialize `MnA` / `buybacks` / `cashBS`, copy year-0 cash into `cashBS` and `self.cash0`, and run the datacheck. Use after forecast helpers that mutate the dict, unless `financials` was passed to `__init__`.
+Copy the `financials` dict, overlay any series stored by `forecast_*`, and convert that into `self.fin` (date-indexed DataFrame). Initialize `MnA` / `buybacks` / `cashBS`, copy year-0 cash into `cashBS` and `self.cash0`, and run the datacheck. Call after `forecast_*`, unless `financials` was passed to `__init__`. Later capital-action calls are recorded and replayed from this loaded snapshot in a fixed order: free cash flow, acquisitions, disposals, debt target, then one distribution method.
 
 ### Build free cash flow
 
@@ -334,7 +334,7 @@ CI (`.github/workflows/python-app.yml`) runs on pushes and pull requests to `mai
 ## Known limitations
 
 - Equity issuance / capital raises are not modelled; avoid negative cash, and treat negative FCFE after year 1 with caution (see cash section above).
-- Incomplete financials are flagged via logging (`data_for_ebitda` / `data_for_earnings`) rather than always hard-failing at load.
+- An EBITDA case with missing columns or NaNs in the forecast series raises `ValueError` at load. Direct FCFE and earnings-only cases are not checked against the EBITDA column list.
 - Terminal depreciation can log an error if capex / ROIC / growth imply negative terminal DA.
 - `display_fin()` loads the template with a Windows-style path relative to the package and expects the repo layout (template at project root).
 - Acquisitions that drive cash below zero log an error; lower EBITDA or raise leverage as needed.

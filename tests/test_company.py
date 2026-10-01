@@ -2,6 +2,7 @@ import finagle as cmp
 import pytest
 import pandas as pd
 import os
+import copy
 
 def test_value():
     #Sample Problem 2
@@ -247,3 +248,49 @@ def test_fcf_to_allocate():
     #answer = pd.read_pickle("./fcf_to_acquire.pkl")
     os.remove('PL.log')
     pd.testing.assert_frame_equal(answer, result)
+
+def test_forecast_leaves_caller_dict_and_log_and_rejects_missing_column():
+    year = 10
+    financials = {
+        'date': '2021-12-26',
+        'revenue': [0],
+        'ebitda': [330],
+        'capex': [40, 46.0],
+        'dwc': [0] * (year + 1),
+        'sbc': [0],
+        'tax': [0],
+        'da': [51.847],
+        'debt': [10] * (year + 1),
+        'interest': [1],
+        'cash': 5,
+        'nol': 0,
+        'noa': 0,
+    }
+    snapshot = copy.deepcopy(financials)
+    company = cmp.company(
+        ticker='LOGME', rd=0.05, re=0.1, t=0.21, shares=10,
+        gt=0.02, roict=0.15, year=year, dividend=[0])
+    company.forecast_ebitda(330, [0.1], financials)
+    company.forecast_capex(financials['capex'], financials)
+    company.forecast_sbc(financials['sbc'], financials, sbc_rate_t=None)
+    assert financials == snapshot
+
+    with_note = copy.deepcopy(financials)
+    with_note['notes'] = 'ignored extra key'
+    company.load_financials(financials=with_note)
+    assert company.data_for_ebitda is True
+    company.fcf_from_ebitda()
+    company.value()
+    with open('LOGME.log', encoding='utf-8') as handle:
+        text = handle.read()
+    os.remove('LOGME.log')
+    assert 'LOGME' in text
+    assert 'fcf_from_ebitda() method complete' in text
+
+    missing = copy.deepcopy(snapshot)
+    del missing['sbc']
+    incomplete = cmp.company(
+        ticker='BADCO', rd=0.05, re=0.1, t=0.21, gt=0.02, year=year)
+    with pytest.raises(ValueError, match='sbc'):
+        incomplete.load_financials(missing)
+    os.remove('BADCO.log')
