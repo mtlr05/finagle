@@ -12,7 +12,8 @@ The package centers on the `company` class in `finagle/company.py`. Copy [`Valua
 finagle/
 ├── finagle/
 │   ├── __init__.py              # exports company
-│   └── company.py               # company class
+│   ├── company.py               # company class
+│   └── sec.py                   # latest 10-K year-0 figures
 ├── Valuation_template.ipynb     # copy into a local folder for a new ticker
 ├── company_template.xlsx        # display_fin() Excel template
 ├── FCF_distribution.PNG         # cashflow overview diagram
@@ -174,6 +175,26 @@ Each value may be a scalar or a list. Index 0 is the trailing-twelve-months (TTM
 - **Auto-added on load:** `shares`, `price`, `MnA`, `buybacks`, `cashBS`.
 
 If `ebitda` is present, missing required columns or NaNs in `ebitda`, `capex`, `dwc`, `debt`, or `sbc` raise `ValueError` at load and name the problem. Extra keys are ignored. A dict with no `ebitda` column (direct FCFE, or earnings via `e`) is not held to the EBITDA column list.
+
+## Latest 10-K baseline
+
+`finagle.sec.last_10k` reads year-0 figures from the company's latest 10-K. It is not imported by `import finagle`, and it does not load a `company` or write `self.fin`.
+
+```python
+from finagle.sec import last_10k
+
+baseline = last_10k("ATKR", user_agent="Your Name you@example.com")
+baseline.provenance   # key, value, tags, raw dollars, period end, note
+baseline.financials   # only the keys that resolved
+```
+
+The SEC rejects requests that do not identify the caller, so `user_agent` is required and should include a name and an email address. Dollar amounts are divided by `scale` (default one million), which matches the notebooks. `provenance` keeps the unscaled dollar amount.
+
+`financials` is shaped for year 0 only: `date` is `'%Y-%m-%d'`, `cash` is a number, and `revenue`, `tax`, `interest`, `da`, `capex`, `sbc`, `ebitda`, and `debt` are one-element lists. Copy the values you accept into your own dict. A one-element `debt` list is not a full horizon. `dwc`, `nol`, `noa`, shares, and price are not extracted.
+
+EBITDA is operating income plus depreciation and amortization plus stock-based compensation. D&A uses `DepreciationDepletionAndAmortization` when that tag is present. Otherwise it sums `DepreciationAndAmortization` (or `Depreciation`) and `AmortizationOfIntangibleAssets` when that intangible line is larger than the combined tag, so a separate intangible amortization charge is not dropped or counted twice. If stock-based compensation is missing, EBITDA is still operating income plus D&A and the note says the add-back was skipped. Debt is short-term plus long-term, without adding a current portion that is already inside `LongTermDebt`. Cash is cash and cash equivalents plus short-term investments when that fact is present.
+
+The period is the last fiscal year on that 10-K. It matches trailing twelve months only while that 10-K is still the latest report. [`Valuation_template.ipynb`](Valuation_template.ipynb) has an optional cell that displays `provenance` and does not fill `financials`.
 
 ## Method reference
 
