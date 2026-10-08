@@ -291,6 +291,29 @@ Below is a figure which explains the various cashflows and values which are calc
 
 A valuation based on FCFE discounts these cashflows to present from the period in which they are generated. If additional precision is desired, one can allocate the FCFE: cash can be used for buybacks, dividends, or stored on the balance sheet. This is done using `fcf_to_allocate()` (or alternatively `fcf_to_buyback()` or `fcf_to_bs()`). If one of these methods is invoked, the valuation provided by the dividend discount model (`value_per_share_DDM`) will differ from the basic discounted FCFE model (`value_per_share`) as provided in the Excel report.
 
+## Terminal equity cash flow (`fcfet`)
+
+On the EBITDA path, `value()` discounts explicit FCFE through the last forecast year and then a growing perpetuity. `fcfet` is free cash flow to equity in the first year after that forecast. It is not a column on `fin`. Equity value at the end of the last explicit year is `fcfet / (re - gt)`. The dividend-discount terminal value uses the same cash flow divided by the ending share count.
+
+`fcf` in the last explicit year is after interest and before net borrowing. Interest that year is `rd` times prior-year debt. The first perpetuity year is built from these assumptions:
+
+- EBITDA, stock-based compensation, capex, the change in working capital, and cash tax aside from the interest shield all grow at `gt`.
+- Opening debt is the last explicit year's ending debt, so interest is `rd` times that balance.
+- Debt then grows at `gt`, so net borrowing equals `gt` times ending debt.
+- The interest tax shield is at the marginal rate `t`. One more dollar of interest changes `fcf` by `-(1 - t)`.
+
+Growing last year's `fcf` by `(1 + gt)` grows the operating items and also grows the deduction of last year's interest, `rd * Debt_prior`. Next year's interest is `rd * Debt`, with `Debt = Debt_prior + dDebt`. The pretax gap between that grown interest bill and next year's interest is `rd * (dDebt - gt * Debt_prior)`. After tax, the gap is added back. Next year's borrowing is added once.
+
+```text
+fcfet = fcf * (1 + gt)
+      + (1 - t) * rd * (gt * Debt_prior - dDebt)
+      + gt * Debt
+```
+
+`Debt_prior` is ending debt minus `dDebt`.
+
+Two reductions check the expression. With no growth and no debt change, the last two terms are zero and `fcfet = fcf`. When debt already grew at `gt` in the last explicit year (`dDebt = gt * Debt_prior`), the interest correction is zero and `gt * Debt = dDebt * (1 + gt)`, so `fcfet = (fcf + dDebt) * (1 + gt)`. That is last year's free cash flow to equity, before any acquisition cash in `MnA`, grown at `gt`.
+
 ## Treatment and interpretation of cash
 
 It is well known that equity value is the NPV of the FCFE adjusted for on-balance-sheet cash. What is implicit in this definition is that the FCFE (and the current on-balance-sheet cash) is distributed to the investor in the period in which it is generated. Cash as forecast in the `fin` dataframe is the cumulative FCFE over the course of the forecast period, so as it relates to the valuation it is not accumulated on the balance sheet. The one exception is the first column, for the baseline year (year 0), which is meant to be the cash on the balance sheet. In the case of the DDM, any cash accumulated on the balance sheet is distributed in the final year of the forecast in the form of a dividend. Terminal equity values used in both methods are the same, though per-share values will differ if buybacks reduced the share count. If no allocation method is invoked, the DDM and FCFE models will give the same results.
