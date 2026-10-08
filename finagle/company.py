@@ -584,13 +584,13 @@ class company:
         self.fin['interest'] = self.rd*self.fin.debt.shift(1)
         self.__iset('interest', 0, interest0)
         
-        # really complicated way to calculate the terminal depreciation for
-        # situations.where there is terminal growth. This will enforce that
-        # Capex>=Depreciation so that assets continue to increase as the
-        # company grows its bottom line
+        # Terminal depreciation is the plug that makes net investment match
+        # growth and ROIC in the last explicit year:
+        # capex + dwc - DA = (gt / roict) * (EBITDA - SBC - DA) * (1 - t)
 
         C = self.gt/self.roict*(1-self.t)
-        dat = (self.fin['capex'].iloc[-1]-C*self.fin['ebitda'].iloc[-1])/(1-C)
+        ebitda_ex_sbc = self.fin['ebitda'].iloc[-1] - self.fin['sbc'].iloc[-1]
+        dat = (self.fin['capex'].iloc[-1] + self.fin['dwc'].iloc[-1] - C * ebitda_ex_sbc)/(1 - C)
         if dat < 0:
             self.log.error('negative depreciation in terminal year, check roic and growth assumptions')
 
@@ -968,11 +968,19 @@ class company:
         self._build_statements()
 
         if self.data_for_ebitda is True:
-            # really complicated way to calculate the terminal FCFE for situtions...
-            # ...where there is terminal growth and you have changes in debt the final year before terminal.
-            # If no change in debt and no growth the fcfet = fcfe = fcf in the terminal year
-            self.fcfet = (self.fin['fcf'].iloc[-1]-self.fin['dDebt'].iloc[-1]
-                          * self.rd+self.fin['debt'].iloc[-1]*self.gt)*(1+self.gt)
+            # First perpetuity FCFE. Grow fcf, correct after-tax interest when
+            # this year's debt change is not g times prior debt, and add next
+            # year's borrowing. With no growth and no debt change, fcfet = fcf.
+            fcf = self.fin['fcf'].iloc[-1]
+            debt = self.fin['debt'].iloc[-1]
+            d_debt = self.fin['dDebt'].iloc[-1]
+            debt_prior = debt - d_debt
+            g = self.gt
+            self.fcfet = (
+                fcf * (1 + g)
+                + (1 - self.t) * self.rd * (g * debt_prior - d_debt)
+                + g * debt
+            )
 
             self.fin['equity'] = self.__pv(
                 cfs=self.fin.fcfe, cft=self.fcfet, g=self.gt, r=self.re)
