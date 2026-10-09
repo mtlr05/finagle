@@ -13,7 +13,12 @@ finagle/
 ├── finagle/
 │   ├── __init__.py              # exports company
 │   ├── company.py               # company class
-│   └── sec.py                   # latest 10-K year-0 figures
+│   ├── sec.py                   # latest 10-K year-0 figures
+│   └── agent/                   # valuation from an article, for agents
+├── examples/
+│   ├── sample_article.md        # fictional article
+│   └── article_case.json        # case built from that article
+├── AGENTS.md                    # instructions an agent reads first
 ├── Valuation_template.ipynb     # copy into a local folder for a new ticker
 ├── company_template.xlsx        # display_fin() Excel template
 ├── FCF_distribution.PNG         # cashflow overview diagram
@@ -196,6 +201,54 @@ EBITDA is operating income plus depreciation and amortization plus stock-based c
 
 The period is the last fiscal year on that 10-K. It matches trailing twelve months only while that 10-K is still the latest report. [`Valuation_template.ipynb`](Valuation_template.ipynb) has an optional cell that displays `provenance` and does not fill `financials`.
 
+## Valuing from an article (agents)
+
+`finagle.agent` lets an AI agent, such as Grok, value a company from a stock article. `import finagle` does not load it, and it does not change how `company` or the notebooks work.
+
+The agent reads the article, fills gaps from the latest 10-K, and writes a case: each figure plus its source (`article`, `10k`, or `assumption`) and a quote or reason. It does not write method calls. `run_case` validates the case, turns it into the same `company` methods a notebook would call, in the order `company` replays them, and runs `value()` in a temporary directory. The result has both values per share, the assumptions, any log errors, and `notebook_code`, which you can paste into a notebook to rerun the case yourself.
+
+```python
+import json
+from finagle.agent import run_case, validate_case
+
+case = json.load(open("examples/article_case.json"))
+validate_case(case)        # errors, missing fields, warnings
+result = run_case(case)
+result["value_per_share"], result["value_per_share_DDM"]
+print(result["notebook_code"])
+```
+
+[`examples/article_case.json`](examples/article_case.json) is built from [`examples/sample_article.md`](examples/sample_article.md), a fictional article. Its only warning is that the quoted price is older than the publication date.
+
+### Connecting Grok
+
+If Grok can clone this repository and run Python, point it at [`AGENTS.md`](AGENTS.md) and give it the article text. Paste the text instead of a link, because paywalled posts often will not load for the bot.
+
+```text
+Value the company in the article below using the finagle repo
+(https://github.com/mtlr05/finagle). Follow AGENTS.md.
+Use the SEC user agent "Your Name you@example.com".
+
+Article:
+<paste the article text>
+```
+
+Add any assumptions you want held fixed, for example "use a 9% cost of equity and 2% terminal growth unless the article states otherwise". Otherwise Grok chooses them and labels them as assumptions.
+
+If Grok can only read the repository, or runs somewhere that cannot execute this code, run the MCP server instead. It exposes the same functions as tools, plus the workflow as the `value_from_article` prompt. It needs Python 3.10 or later:
+
+```bash
+pip install -e ".[agent]"
+export FINAGLE_SEC_USER_AGENT="Your Name you@example.com"
+python -m finagle.agent.mcp_server --transport stdio
+```
+
+Use `--transport streamable-http` for a remote client. Hosting the server at a public address is up to you.
+
+### Schedules repeat after the list ends
+
+`buyback_schedule` repeats its last amount, scaled to free cash flow, for every year after the list. End the list with `0` when a program stops: three years of $100 million is `[0, 100, 100, 100, 0]`. `dividend_per_share` works the same way: after the list ends, the total dividend grows with free cash flow and is never cut. This is how `fcf_to_allocate` and the `dividend` argument already behave in `company`.
+
 ## Method reference
 
 ### Forecast
@@ -373,7 +426,7 @@ pip install -r requirements.txt -e .
 pytest
 ```
 
-CI (`.github/workflows/python-app.yml`) runs on pushes and pull requests to `main` using Python 3.9.12 and `pytest`. Tests compare `value()` outputs to pickled snapshots under `tests/`.
+CI (`.github/workflows/python-app.yml`) runs on pushes and pull requests to `main` using Python 3.9.12 and `pytest`. Tests compare `value()` outputs to pickled snapshots under `tests/`. The `test_agent_*` files replay several of those snapshots through `run_case` and run the article example. The MCP tests are skipped unless the `agent` extra is installed, which needs Python 3.10 or later.
 
 ## Known limitations
 
