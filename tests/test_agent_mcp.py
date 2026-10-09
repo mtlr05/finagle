@@ -1,8 +1,8 @@
-import anyio
 import pytest
 
 pytest.importorskip('mcp')
 
+import anyio  # noqa: E402
 from finagle.agent.mcp_server import build_server  # noqa: E402
 
 
