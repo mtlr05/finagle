@@ -57,13 +57,18 @@ def describe_inputs():
             'path': 'One change per year, including the baseline. This series is not extended for you.',
         },
         'distribution_modes': {
-            'none': 'Do not allocate free cash flow. Dividends and buybacks stay at the dividend policy.',
+            'none': (
+                'Pay all free cash flow to equity out as dividends in the year it is '
+                'earned, with no buybacks. The two values per share come out equal.'
+            ),
             'max_buybacks': 'Spend available cash on repurchases.',
             'buyback_schedule': (
                 'Repurchase the dollar amounts given, in millions. Index 0 is the '
                 'baseline year and is usually 0 when the repurchase is in the future. '
-                'A 0 keeps that year\'s cash on the balance sheet. This is not '
-                '"buy back as much as possible".'
+                'A 0 keeps that year\'s cash on the balance sheet. After the list ends, '
+                'the last amount is repeated in proportion to free cash flow, so end '
+                'the list with 0 when the program stops: three years of $100 million '
+                'is [0, 100, 100, 100, 0]. This is not "buy back as much as possible".'
             ),
             'retain': 'Keep undistributed cash on the balance sheet and pay it out in the last year.',
         },
@@ -85,8 +90,8 @@ def describe_inputs():
             'Stock-based compensation as a share of profit becomes forecast.sbc and sbc_rate_terminal.',
             'A working-capital build or release becomes forecast.dwc mode path. If the article is silent, mode zero is an assumption and must be labeled as one.',
             'A leverage target or a debt paydown becomes debt mode target. A stated debt schedule becomes path. Silence about a change becomes hold.',
-            'A buyback authorization or a dollar repurchase program becomes distribution mode buyback_schedule. Language that all free cash flow will be used for buybacks becomes max_buybacks.',
-            'A dividend per share becomes dividend_per_share.',
+            'A buyback authorization or a dollar repurchase program becomes distribution mode buyback_schedule. End the schedule with 0 when the program has an end date; otherwise the last amount continues every year. Language that all free cash flow will be used for buybacks becomes max_buybacks.',
+            'A dividend per share becomes dividend_per_share. After the list ends, the total dividend grows with free cash flow and is never cut.',
             'A bolt-on acquisition becomes one acquisitions entry. Use the deal value and the multiple, or the acquired EBITDA.',
             'An asset sale or a stake sale becomes one disposals entry.',
             'Excess cash, net operating losses, and non-operating assets become cash, nol, and noa. Use 0 only as an explicit assumption.',
@@ -136,7 +141,7 @@ def _fields():
         _field('forecast.sbc', 'millions, short or full', 'article', 'From year 0. A short list is extended toward sbc_rate_terminal, or at the last ratio.', False),
         _field('forecast.sbc_rate_terminal', 'fraction of EBITDA', 'assumption or article', 'Ignored when forecast.sbc already covers every year.', False),
         _field('forecast.dwc', 'zero or a full path', 'article working-capital comment, otherwise an assumption', 'Not extended. mode path must have year + 1 values.', True),
-        _field('dividend_per_share', 'dollars, or a list', 'article dividend', 'Index 0 is the baseline year. Omit for no dividend.', False),
+        _field('dividend_per_share', 'dollars, or a list', 'article dividend', 'Index 0 is the baseline year. After the list ends, the total dividend grows with free cash flow and is never cut. Omit for no dividend.', False),
         _field('debt', 'hold, path, or target', 'article leverage or debt plan', 'Exactly one policy. See debt_modes.', True),
         _field('acquisitions', 'list of deals', 'article M&A', 'Empty when the article has no deals. See acquisition_size.', False),
         _field('disposals', 'list of sales', 'article asset sales', 'amount is gross proceeds in millions.', False),

@@ -173,7 +173,8 @@ CASE_JSON_SCHEMA = {
             },
         },
         'dividend_per_share': _leaf_prop(
-            'Dividend per share. A number, or a list whose index 0 is the baseline year. Omit for 0.'
+            'Dividend per share. A number, or a list whose index 0 is the baseline year. '
+            'After the list ends, the total dividend grows with free cash flow and is never cut. Omit for 0.'
         ),
         'debt': {
             'type': 'object',
@@ -237,16 +238,22 @@ CASE_JSON_SCHEMA = {
             'type': 'object',
             'additionalProperties': False,
             'description': (
-                'One payout policy. none leaves free cash flow undistributed. '
+                'One payout policy. none pays all free cash flow to equity out as dividends '
+                'in the year it is earned, with no buybacks. '
                 'max_buybacks spends available cash on repurchases. '
                 'buyback_schedule uses the dollar amounts given; index 0 is the baseline year, '
                 'and 0 means no repurchase that year with the rest of the cash retained. '
+                'After the list ends the last amount repeats in proportion to free cash flow, '
+                'so end the list with 0 when the program stops. '
                 'retain keeps undistributed cash on the balance sheet and pays it out in the last year. '
                 'price_path constant keeps the given price; proportional holds the year-1 EV/EBITDA multiple.'
             ),
             'properties': {
                 'mode': _leaf_prop('none, max_buybacks, buyback_schedule, or retain.'),
-                'schedule': _leaf_prop('Buyback dollars by year, millions. Index 0 is the baseline.'),
+                'schedule': _leaf_prop(
+                    'Buyback dollars by year, millions. Index 0 is the baseline. '
+                    'End with 0 when the program stops; otherwise the last amount continues.'
+                ),
                 'price': _leaf_prop('Price used to turn buyback dollars into shares.'),
                 'price_path': _leaf_prop('constant or proportional.'),
             },
