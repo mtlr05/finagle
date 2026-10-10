@@ -1,6 +1,11 @@
 import pandas as pd
 
-from finagle.agent.baseline import get_10k_baseline, leaves_from_baseline, shares_from_facts
+from finagle.agent.baseline import (
+    get_10k_baseline,
+    leaves_from_baseline,
+    sec_baseline,
+    shares_from_facts,
+)
 from finagle.sec import Baseline, baseline_from_facts
 from tests.test_sec import PERIOD, _clean
 
@@ -70,6 +75,54 @@ def test_get_10k_baseline_maps_the_helper_and_the_share_count(monkeypatch):
     assert result['shares']['value'] == 46.0
     assert 'dwc' in result['not_in_10k']
     assert '10-K' in result['note']
+
+
+def test_sec_leaves_are_fiscal_year_dollars():
+    leaves = leaves_from_baseline(baseline_from_facts(_clean(), PERIOD))
+    assert leaves['ebitda']['basis'] == 'fiscal_year'
+    assert leaves['ebitda']['currency'] == 'USD'
+    assert leaves['date']['basis'] == 'fiscal_year'
+    assert 'currency' not in leaves['date']
+
+
+def _sec_feed(monkeypatch, report_dates):
+    facts = _clean()
+    facts['facts']['dei'] = _share_facts([_share(46_000_000, end=PERIOD)])['facts']['dei']
+    submissions = {'filings': {'recent': {
+        'form': ['10-Q'] + ['10-K'] * len(report_dates),
+        'reportDate': ['2024-09-30'] + list(report_dates),
+    }}}
+
+    def fake_get_json(url, user_agent):
+        if 'submissions' in url:
+            return submissions
+        if 'companyfacts' in url:
+            return facts
+        return {'0': {'ticker': 'ATKR', 'cik_str': 1}}
+
+    monkeypatch.setattr('finagle.agent.baseline._get_json', fake_get_json)
+
+
+def test_sec_baseline_reads_the_requested_fiscal_year(monkeypatch):
+    _sec_feed(monkeypatch, ['2024-12-31', PERIOD])
+    result = sec_baseline('ATKR', 'Name you@example.com', period_end=PERIOD)
+    assert result['ok']
+    assert result['period_end'] == PERIOD
+    assert result['latest_period_end'] == '2024-12-31'
+    assert result['baseline']['ebitda']['value'] == 25.0
+    assert result['baseline']['date'] == {
+        'value': PERIOD, 'source': '10k', 'evidence': '10-K report date',
+        'period_end': PERIOD, 'basis': 'fiscal_year',
+    }
+    assert result['shares']['value'] == 46.0
+
+
+def test_sec_baseline_without_that_10k_lists_the_years(monkeypatch):
+    _sec_feed(monkeypatch, ['2024-12-31', PERIOD])
+    result = sec_baseline('ATKR', 'Name you@example.com', period_end='2022-12-31')
+    assert not result['ok']
+    assert result['periods'] == ['2024-12-31', PERIOD]
+    assert result['latest_period_end'] == '2024-12-31'
 
 
 def test_missing_fact_stays_visible():

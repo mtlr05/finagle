@@ -10,15 +10,18 @@ from datetime import datetime
 
 from finagle.sec import (
     FACTS_URL,
+    SUBMISSIONS_URL,
     TICKER_URL,
     _cik_for_ticker,
     _get_json,
+    baseline_from_facts,
     last_10k,
 )
 
 _SHARE_TAG = 'EntityCommonStockSharesOutstanding'
 # Cover-page share counts are dated after the fiscal period, often near the filing.
 _COVER_WINDOW_DAYS = 150
+_NOT_IN_10K = ['dwc', 'nol', 'noa', 're', 'rd', 't', 'gt', 'roict', 'price', 'dividend']
 
 
 def get_10k_baseline(ticker, user_agent, scale=1_000_000):
@@ -36,6 +39,61 @@ def get_10k_baseline(ticker, user_agent, scale=1_000_000):
     cik = _cik_for_ticker(_get_json(TICKER_URL, user_agent), ticker)
     facts = _get_json(FACTS_URL.format(cik=cik), user_agent)
     shares = shares_from_facts(facts, period_end, scale=scale)
+    return _result(ticker, period_end, scale, leaves, shares)
+
+
+def sec_baseline(ticker, user_agent, period_end=None, scale=1_000_000):
+    '''Year-0 leaves from the 10-K for one fiscal year.
+
+    With no ``period_end`` this is ``get_10k_baseline``. Otherwise the
+    submissions feed must list a 10-K whose report date is ``period_end``;
+    when none does, ``ok`` is false and ``periods`` lists the 10-K report
+    dates that exist. ``latest_period_end`` is the newest 10-K either way.
+    '''
+    if period_end is None:
+        result = get_10k_baseline(ticker, user_agent, scale=scale)
+        result['latest_period_end'] = result['period_end']
+        return result
+    if user_agent is None or not str(user_agent).strip():
+        raise ValueError('user_agent is required')
+    if not scale:
+        raise ValueError('scale must be non-zero')
+    ticker = str(ticker).strip()
+    period_end = str(period_end)
+    cik = _cik_for_ticker(_get_json(TICKER_URL, user_agent), ticker)
+    submissions = _get_json(SUBMISSIONS_URL.format(cik=cik), user_agent)
+    periods = _10k_periods(submissions)
+    latest = periods[0] if periods else None
+    if period_end not in periods:
+        return {
+            'ok': False,
+            'ticker': ticker,
+            'period_end': period_end,
+            'latest_period_end': latest,
+            'periods': periods,
+            'error': 'no 10-K with report date %s' % period_end,
+        }
+    facts = _get_json(FACTS_URL.format(cik=cik), user_agent)
+    leaves = leaves_from_baseline(baseline_from_facts(facts, period_end, scale=scale))
+    if 'date' in leaves:
+        leaves['date']['evidence'] = '10-K report date'
+        leaves['date'].pop('note', None)
+    shares = shares_from_facts(facts, period_end, scale=scale)
+    result = _result(ticker, period_end, scale, leaves, shares)
+    result['latest_period_end'] = latest
+    return result
+
+
+def _10k_periods(submissions):
+    recent = (submissions or {}).get('filings', {}).get('recent', {})
+    periods = []
+    for form, report_date in zip(recent.get('form', []), recent.get('reportDate', [])):
+        if form == '10-K' and report_date and report_date not in periods:
+            periods.append(report_date)
+    return periods
+
+
+def _result(ticker, period_end, scale, leaves, shares):
     return {
         'ok': True,
         'ticker': str(ticker).strip(),
@@ -44,13 +102,11 @@ def get_10k_baseline(ticker, user_agent, scale=1_000_000):
         'units': 'millions of dollars; shares in millions',
         'baseline': leaves,
         'shares': shares,
-        'not_in_10k': [
-            'dwc', 'nol', 'noa', 're', 'rd', 't', 'gt', 'roict', 'price', 'dividend',
-        ],
+        'not_in_10k': list(_NOT_IN_10K),
         'note': (
-            'Figures are the latest 10-K fiscal year, not a newer trailing '
-            'twelve months. List fields are year 0 only. Copy the leaves you '
-            'accept into the case; this does not load a company.'
+            'Figures are a 10-K fiscal year, not trailing twelve months. '
+            'List fields are year 0 only. Copy the leaves you accept into '
+            'the case; this does not load a company.'
         ),
     }
 
@@ -80,7 +136,10 @@ def leaves_from_baseline(baseline):
             'source': '10k',
             'evidence': evidence,
             'period_end': row.get('period end'),
+            'basis': 'fiscal_year',
         }
+        if key != 'date':
+            leaf['currency'] = 'USD'
         if note:
             leaf['note'] = note
         leaves[key] = leaf
