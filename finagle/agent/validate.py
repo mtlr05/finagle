@@ -5,6 +5,7 @@ and do not stop it.
 '''
 
 from finagle.agent.schema import (
+    BASES,
     DEBT_MODES,
     DISTRIBUTION_MODES,
     DWC_MODES,
@@ -55,7 +56,8 @@ def validate_case(case):
     elif path == 'fcfe':
         _check_fcfe(case, errors, missing)
 
-    _check_periods(case, warnings)
+    _check_periods(case, errors)
+    _check_currency(case, errors)
     _check_stale_price(case, warnings)
     return {'errors': errors, 'warnings': warnings, 'missing': missing}
 
@@ -199,9 +201,9 @@ def _check_units(data, warnings):
     if ratio < _RATIO_LOW or ratio > _RATIO_HIGH:
         warnings.append(
             'market cap divided by EBITDA is %.4g. Money is in millions of '
-            'dollars and shares are in millions of shares. A ratio this far '
-            'from a normal multiple usually means raw dollars or billions '
-            'were entered as millions.' % ratio
+            'the reporting currency and shares are in millions of shares. A '
+            'ratio this far from a normal multiple usually means raw amounts, '
+            'billions, or a price in another currency were entered.' % ratio
         )
 
 
@@ -384,19 +386,70 @@ def _reject_other_paths(case, path, errors):
         errors.append('fcfe is only used when path is fcfe')
 
 
-def _check_periods(case, warnings):
+def _check_periods(case, errors):
+    '''Reported year-0 figures are the last fiscal year and all end on baseline.date.'''
     baseline = case.get('baseline')
     if not isinstance(baseline, dict):
         return
-    ends = []
+    date = baseline.get('date')
+    year_end = str(date['value']) if is_leaf(date) and date.get('value') else None
+    ends = set()
     for key, node in baseline.items():
-        if is_leaf(node) and node.get('period_end'):
-            ends.append(str(node['period_end']))
-    unique = sorted(set(ends))
-    if len(unique) > 1:
-        warnings.append(
-            'year-0 figures come from different period ends: ' + ', '.join(unique)
+        if key == 'ebitda_definition' or not is_leaf(node):
+            continue
+        path = 'baseline.%s' % key
+        reported = node.get('source') != 'assumption'
+        basis = node.get('basis')
+        period_end = node.get('period_end')
+        if basis is not None and basis not in BASES:
+            errors.append('%s basis must be fiscal_year, ttm, or quarter' % path)
+        elif basis in ('ttm', 'quarter'):
+            errors.append(
+                '%s is %s. Year 0 must be the last completed fiscal year, because '
+                'EBITDA growth is measured from it.' % (path, basis)
+            )
+        elif reported and basis is None:
+            errors.append('%s needs basis fiscal_year' % path)
+        if reported and not period_end:
+            errors.append('%s needs period_end' % path)
+        if period_end:
+            ends.add(str(period_end))
+            if year_end and str(period_end) != year_end:
+                errors.append(
+                    '%s is for %s, not the baseline year ending %s'
+                    % (path, period_end, year_end)
+                )
+    if not year_end and len(ends) > 1:
+        errors.append(
+            'year-0 figures come from different period ends: ' + ', '.join(sorted(ends))
         )
+
+
+def _check_currency(case, errors):
+    '''One reporting currency for year 0, and a price in that currency.'''
+    baseline = case.get('baseline')
+    currencies = set()
+    if isinstance(baseline, dict):
+        for node in baseline.values():
+            if is_leaf(node) and node.get('currency'):
+                currencies.add(str(node['currency']).upper())
+    if len(currencies) > 1:
+        errors.append(
+            'baseline figures are in more than one currency: ' + ', '.join(sorted(currencies))
+        )
+        return
+    if not currencies:
+        return
+    reporting = next(iter(currencies))
+    for path in (('market', 'price'), ('distribution', 'price')):
+        node = _dig(case, *path)
+        if is_leaf(node) and node.get('currency'):
+            currency = str(node['currency']).upper()
+            if currency != reporting:
+                errors.append(
+                    '%s is in %s but the financials are in %s. Use the price converted '
+                    'to %s.' % ('.'.join(path), currency, reporting, reporting)
+                )
 
 
 def _check_stale_price(case, warnings):
@@ -441,7 +494,9 @@ def _consume(node, path, errors, missing, required):
 
 def _check_leaf_meta(path, node, errors):
     if node.get('source') not in SOURCES:
-        errors.append('%s source must be article, 10k, or assumption' % path)
+        errors.append(
+            '%s source must be article, attachment, 10k, yahoo, or assumption' % path
+        )
     evidence = node.get('evidence')
     if not isinstance(evidence, str) or not evidence.strip():
         errors.append('%s is missing provenance' % path)

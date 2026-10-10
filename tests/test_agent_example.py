@@ -30,6 +30,17 @@ def test_every_article_quote_is_in_the_article():
         assert evidence in text, path
 
 
+def test_example_baseline_is_the_last_fiscal_year():
+    case = _load()
+    for key, node in case['baseline'].items():
+        if node['source'] == 'assumption' or key == 'ebitda_definition':
+            continue
+        assert node['basis'] == 'fiscal_year', key
+        assert node['period_end'] == '2023-12-31', key
+    quotes = [node['evidence'] for _, node in iter_leaves(case)]
+    assert not any('twelve months' in quote for quote in quotes)
+
+
 def test_example_validates_with_only_the_price_date_warning():
     report = validate_case(_load())
     assert report['errors'] == []

@@ -4,7 +4,7 @@
   "year": 10,
   "market": {
     "shares": {"value": 50, "source": "article", "evidence": "with 50 million shares outstanding"},
-    "price": {"value": 42, "source": "article", "evidence": "trades at $42 per share as of August 1, 2024", "as_of": "2024-08-01"}
+    "price": {"value": 42, "source": "article", "evidence": "trades at $42 per share as of August 1, 2024", "as_of": "2024-08-01", "currency": "USD"}
   },
   "rates": {
     "re": {"value": 0.09, "source": "article", "evidence": "I discount equity cash flows at 9%"},
@@ -14,48 +14,48 @@
     "roict": {"value": 0.2, "source": "assumption", "evidence": "Niche industrial with high returns; the article does not state a terminal ROIC."}
   },
   "baseline": {
-    "date": {"value": "2024-06-30", "source": "article", "evidence": "For the twelve months ended June 30, 2024", "period_end": "2024-06-30"},
-    "revenue": {"value": 1200, "source": "article", "evidence": "revenue was $1,200 million", "period_end": "2024-06-30"},
-    "ebitda": {"value": 240, "source": "article", "evidence": "adjusted EBITDA was $240 million", "period_end": "2024-06-30"},
+    "date": {"value": "2023-12-31", "source": "article", "evidence": "For fiscal 2023, the year ended December 31, 2023", "period_end": "2023-12-31", "basis": "fiscal_year"},
+    "revenue": {"value": 1200, "source": "article", "evidence": "revenue was $1,200 million", "period_end": "2023-12-31", "basis": "fiscal_year", "currency": "USD"},
+    "ebitda": {"value": 240, "source": "article", "evidence": "adjusted EBITDA was $240 million", "period_end": "2023-12-31", "basis": "fiscal_year", "currency": "USD"},
     "ebitda_definition": {"value": "before_sbc", "source": "article", "evidence": "Adjusted EBITDA adds back $12 million of stock-based compensation"},
-    "capex": {"value": 36, "source": "article", "evidence": "Capital expenditure was $36 million", "period_end": "2024-06-30"},
-    "da": {"value": 40, "source": "article", "evidence": "depreciation and amortization was $40 million", "period_end": "2024-06-30"},
-    "tax": {"value": 38, "source": "article", "evidence": "cash taxes were $38 million", "period_end": "2024-06-30"},
-    "interest": {"value": 22, "source": "article", "evidence": "interest expense was $22 million", "period_end": "2024-06-30"},
-    "sbc": {"value": 12, "source": "article", "evidence": "adds back $12 million of stock-based compensation", "period_end": "2024-06-30"},
-    "debt": {"value": 400, "source": "article", "evidence": "$400 million of debt", "period_end": "2024-06-30"},
-    "cash": {"value": 90, "source": "article", "evidence": "$90 million of cash", "period_end": "2024-06-30"},
+    "capex": {"value": 36, "source": "article", "evidence": "Capital expenditure was $36 million", "period_end": "2023-12-31", "basis": "fiscal_year", "currency": "USD"},
+    "da": {"value": 40, "source": "article", "evidence": "depreciation and amortization was $40 million", "period_end": "2023-12-31", "basis": "fiscal_year", "currency": "USD"},
+    "tax": {"value": 38, "source": "article", "evidence": "cash taxes were $38 million", "period_end": "2023-12-31", "basis": "fiscal_year", "currency": "USD"},
+    "interest": {"value": 22, "source": "article", "evidence": "interest expense was $22 million", "period_end": "2023-12-31", "basis": "fiscal_year", "currency": "USD"},
+    "sbc": {"value": 12, "source": "article", "evidence": "adds back $12 million of stock-based compensation", "period_end": "2023-12-31", "basis": "fiscal_year", "currency": "USD"},
+    "debt": {"value": 400, "source": "article", "evidence": "$400 million of debt", "period_end": "2023-12-31", "basis": "fiscal_year", "currency": "USD"},
+    "cash": {"value": 90, "source": "article", "evidence": "$90 million of cash", "period_end": "2023-12-31", "basis": "fiscal_year", "currency": "USD"},
     "nol": {"value": 0, "source": "assumption", "evidence": "The article mentions no tax losses."},
     "noa": {"value": 0, "source": "assumption", "evidence": "The article mentions no non-operating assets."}
   },
   "forecast": {
-    "ebitda_growth": {"value": [0.08, 0.06], "source": "article", "evidence": "EBITDA growth of 8% next year and 6% the year after"},
-    "capex": {"value": [36, 40, 40], "source": "article", "evidence": "Capex should run about $40 million in each of the next two years"},
+    "ebitda_growth": {"value": [0.08, 0.06], "source": "article", "evidence": "EBITDA growth of 8% in 2024 and 6% in 2025"},
+    "capex": {"value": [36, 40, 40], "source": "article", "evidence": "Capex should run about $40 million in each of 2024 and 2025"},
     "dwc": {
       "mode": {"value": "zero", "source": "assumption", "evidence": "The article does not discuss working capital."}
     }
   },
   "dividend_per_share": {"value": [0.4], "source": "article", "evidence": "The dividend is $0.40 per share a year"},
   "debt": {
-    "mode": {"value": "target", "source": "article", "evidence": "Management targets leverage of 1.5x EBITDA starting in the second year"},
+    "mode": {"value": "target", "source": "article", "evidence": "Management targets leverage of 1.5x EBITDA starting in 2025"},
     "leverage": {"value": 1.5, "source": "article", "evidence": "targets leverage of 1.5x EBITDA"},
-    "start_year": {"value": 2, "source": "article", "evidence": "starting in the second year"}
+    "start_year": {"value": 2, "source": "article", "evidence": "starting in 2025"}
   },
   "acquisitions": [
     {
-      "year": {"value": 1, "source": "article", "evidence": "closing next year"},
+      "year": {"value": 1, "source": "article", "evidence": "closing in 2024"},
       "deal_value": {"value": 90, "source": "article", "evidence": "buy a small valve maker for $90 million"},
       "multiple": {"value": 9, "source": "article", "evidence": "about 9 times EBITDA"},
       "leverage": {"value": 0, "source": "article", "evidence": "paid for with cash"},
-      "next_growth": {"value": 0.06, "source": "assumption", "evidence": "Same as the company's guided growth for the year after."},
+      "next_growth": {"value": 0.06, "source": "assumption", "evidence": "Same as the company's guided growth for 2025."},
       "capex_frac": {"value": 0.15, "source": "assumption", "evidence": "Matches the company's $36 million of capex on $240 million of EBITDA."},
-      "pay_from_cash": {"value": false, "source": "assumption", "evidence": "Only a deal in the baseline year reduces year-0 cash; this one closes next year."}
+      "pay_from_cash": {"value": false, "source": "assumption", "evidence": "Only a deal in the baseline year reduces year-0 cash; this one closes in 2024, year 1."}
     }
   ],
   "distribution": {
-    "mode": {"value": "buyback_schedule", "source": "article", "evidence": "buybacks of $100 million a year for the next three years"},
-    "schedule": {"value": [0, 100, 100, 100, 0], "source": "article", "evidence": "buybacks of $100 million a year for the next three years"},
-    "price": {"value": 42, "source": "article", "evidence": "trades at $42 per share as of August 1, 2024"},
+    "mode": {"value": "buyback_schedule", "source": "article", "evidence": "buybacks of $100 million a year for 2024 through 2026"},
+    "schedule": {"value": [0, 100, 100, 100, 0], "source": "article", "evidence": "buybacks of $100 million a year for 2024 through 2026"},
+    "price": {"value": 42, "source": "article", "evidence": "trades at $42 per share as of August 1, 2024", "currency": "USD"},
     "price_path": {"value": "constant", "source": "assumption", "evidence": "Buy back at today's price rather than assume a rerating."}
   },
   "article": {

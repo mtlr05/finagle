@@ -96,14 +96,99 @@ def test_cost_of_equity_must_exceed_terminal_growth():
     assert any('re must be greater than gt' in error for error in report['errors'])
 
 
-def test_mixed_period_ends_and_a_stale_price_warn():
+def reported(value, period_end='2021-12-31', **extra):
+    item = {
+        'value': value,
+        'source': 'article',
+        'evidence': 'quoted for this test',
+        'period_end': period_end,
+        'basis': 'fiscal_year',
+        'currency': 'USD',
+    }
+    item.update(extra)
+    return item
+
+
+def test_reported_fiscal_year_leaves_are_accepted():
     case = minimal_case()
-    case['baseline']['ebitda'] = leaf(10, period_end='2020-12-31')
-    case['baseline']['capex'] = leaf(1, period_end='2021-12-31')
+    case['baseline']['date'] = reported('2021-12-31')
+    case['baseline']['ebitda'] = reported(10)
+    case['market']['price'] = leaf(20, currency='USD')
+    report = validate_case(case)
+    assert report['errors'] == []
+
+
+def test_a_figure_from_another_year_is_an_error():
+    case = minimal_case()
+    case['baseline']['ebitda'] = reported(10, period_end='2020-12-31')
+    report = validate_case(case)
+    assert any(
+        'baseline.ebitda is for 2020-12-31, not the baseline year ending 2021-12-31' in error
+        for error in report['errors']
+    )
+
+
+def test_mixed_period_ends_without_a_date_are_an_error():
+    case = minimal_case()
+    del case['baseline']['date']
+    case['baseline']['ebitda'] = reported(10, period_end='2020-12-31')
+    case['baseline']['capex'] = reported(1, period_end='2021-12-31')
+    report = validate_case(case)
+    assert any('different period ends' in error for error in report['errors'])
+
+
+def test_trailing_twelve_months_is_rejected():
+    case = minimal_case()
+    case['baseline']['revenue'] = reported(100, basis='ttm')
+    report = validate_case(case)
+    assert any(
+        'baseline.revenue is ttm' in error and 'last completed fiscal year' in error
+        for error in report['errors']
+    )
+
+
+def test_reported_leaf_needs_basis_and_period_end():
+    case = minimal_case()
+    item = reported(10)
+    del item['basis']
+    del item['period_end']
+    case['baseline']['ebitda'] = item
+    errors = validate_case(case)['errors']
+    assert 'baseline.ebitda needs basis fiscal_year' in errors
+    assert 'baseline.ebitda needs period_end' in errors
+
+
+def test_baseline_currencies_must_match():
+    case = minimal_case()
+    case['baseline']['ebitda'] = reported(10, currency='CAD')
+    case['baseline']['capex'] = reported(1, currency='USD')
+    report = validate_case(case)
+    assert any('more than one currency: CAD, USD' in error for error in report['errors'])
+
+
+def test_price_in_the_listing_currency_is_an_error():
+    case = minimal_case()
+    case['baseline']['ebitda'] = reported(10, currency='USD')
+    case['market']['price'] = leaf(20, currency='CAD')
+    report = validate_case(case)
+    assert any(
+        'market.price is in CAD but the financials are in USD' in error
+        for error in report['errors']
+    )
+
+
+def test_attachment_and_yahoo_are_sources():
+    case = minimal_case()
+    case['baseline']['ebitda'] = reported(10, source='attachment', evidence='p. 47: EBITDA 10')
+    case['baseline']['capex'] = reported(1, source='yahoo', evidence='Capital Expenditure')
+    assert validate_case(case)['errors'] == []
+
+
+def test_a_stale_price_warns():
+    case = minimal_case()
     case['market']['price'] = leaf(20, as_of='2020-01-01')
     case['article'] = {'published': leaf('2024-06-01')}
     report = validate_case(case)
-    assert any('different period ends' in warning for warning in report['warnings'])
     assert any('older than the article date' in warning for warning in report['warnings'])
 
 
@@ -135,10 +220,13 @@ def test_catalog_and_prompt_tell_the_bot_what_to_supply():
     assert 'baseline.ebitda' in paths
     assert 'distribution' in paths
     assert 'article.price_target' in paths
-    assert 'millions of dollars' in catalog['units']['money']
+    assert 'millions of the reporting currency' in catalog['units']['money']
     assert 'before stock-based compensation' in catalog['ebitda_definition']
+    assert catalog['baseline_sources']['priority'] == ['article', 'attachment', '10k', 'yahoo']
     assert 'describe_inputs' in VALUE_FROM_ARTICLE
-    assert 'get_10k_baseline' in VALUE_FROM_ARTICLE
+    assert 'build_baseline' in VALUE_FROM_ARTICLE
+    assert 'trailing twelve months' in VALUE_FROM_ARTICLE
+    assert 'TSX' in VALUE_FROM_ARTICLE
     assert 'validate_case' in VALUE_FROM_ARTICLE
     assert 'run_case' in VALUE_FROM_ARTICLE
     assert 'price target' in VALUE_FROM_ARTICLE.lower()

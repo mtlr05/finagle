@@ -1,18 +1,21 @@
 '''What an agent needs to know before it fills a case.'''
 
-VALUE_FROM_ARTICLE = '''You are valuing one publicly traded company from an article. The article is already in your context. Do not fetch it. Seeking Alpha and Substack posts are often paywalled, and no tool downloads them.
+from finagle.agent.schema import BASELINE_PRIORITY
+
+VALUE_FROM_ARTICLE = '''You are valuing one publicly traded company from an article. The article is already in your context. Do not fetch it. Seeking Alpha and Substack posts are often paywalled, and no tool downloads them. The user may also attach a filing, such as an annual report or a 10-K; read it the same way.
 
 Use the finagle tools. Do not invent a list of Python method calls. Fill a case, which is a set of intents. The runner turns those intents into the existing company methods.
 
 1. Extract every figure the article actually states: baseline results, guidance, growth, margins, capex, buybacks, dividends, leverage, acquisitions, asset sales, share count, and the current price. Keep a short quote for each one.
-2. Call describe_inputs. Match what you extracted to those fields. Note the units: money in millions of dollars, shares in millions, price in dollars per share, rates as decimals.
-3. Call get_10k_baseline for any baseline field you still do not have. The 10-K figures are the latest fiscal year, in millions. That matches trailing twelve months only while that 10-K is still the latest report. If the article uses a newer quarter, prefer the article and record both period ends. Debt from the 10-K is one year, not a forecast.
-4. Anything still empty is an assumption. Set source to assumption and write the reason in evidence. Do not leave a required field out, and do not silently use zero for working capital, net operating losses, non-operating assets, or stock-based compensation.
-5. Call validate_case. Fix every error and every missing field. Warnings stay in the result; read them before you run.
-6. Call run_case.
-7. Report value per share from the free-cash-flow-to-equity model and from the dividend discount model, the terminal free cash flow to equity, and the assumptions (every leaf whose source is assumption). If the result has a log error, or ok is false, the run failed: report the error and do not present the number as a valuation. Place the article's price target beside the result when the article states one.
+2. Call describe_inputs. Match what you extracted to those fields. Note the units: money in millions of the reporting currency, shares in millions, price per share in that same currency, rates as decimals.
+3. Year 0 is the last completed fiscal year, never trailing twelve months or a quarter, because EBITDA growth is measured from it. Give every reported baseline leaf basis fiscal_year, its period_end, and its currency. Leave out trailing-twelve-month figures. Growth rates from the article must be relative to that fiscal year.
+4. Fill the baseline in this order: the article, then the attached filing (source attachment, evidence as page plus quote, such as "p. 47: Total revenue 1,200.4"), then the SEC 10-K, then yfinance. Call build_baseline with the article leaves and the attachment leaves; it fills the rest for the same fiscal year and reports what it skipped. Canadian companies skip the SEC: pass the TSX symbol, such as SHOP.TO or a .V symbol for the TSX Venture. Use the price build_baseline returns in the reporting currency. Read its warnings: a newer fiscal year in the data does not move year 0. Debt from any source is one year, not a forecast.
+5. Anything still empty is an assumption. Set source to assumption and write the reason in evidence. Do not leave a required field out, and do not silently use zero for working capital, net operating losses, non-operating assets, or stock-based compensation.
+6. Call validate_case. Fix every error and every missing field. Warnings stay in the result; read them before you run.
+7. Call run_case.
+8. Report value per share from the free-cash-flow-to-equity model and from the dividend discount model, the terminal free cash flow to equity, and the assumptions (every leaf whose source is assumption). If the result has a log error, or ok is false, the run failed: report the error and do not present the number as a valuation. Place the article's price target beside the result when the article states one.
 
-EBITDA must be before stock-based compensation. The model subtracts stock-based compensation, and the 10-K baseline already adds it back. If the article's EBITDA is after stock-based compensation, add it back and set ebitda_definition to before_sbc.
+EBITDA must be before stock-based compensation. The model subtracts stock-based compensation, and the SEC and yfinance baselines already add it back. If the article's EBITDA is after stock-based compensation, add it back and set ebitda_definition to before_sbc.
 
 Do not tune any input so the model matches the article's price target. The price target is not an input. It belongs only in article.price_target.
 '''
@@ -22,20 +25,53 @@ def describe_inputs():
     '''Field catalog, units, and the article cues that map onto intents.'''
     return {
         'units': {
-            'money': 'millions of dollars',
+            'money': 'millions of the reporting currency (the currency of the financial statements)',
             'shares': 'millions of shares',
-            'price': 'dollars per share',
+            'price': 'per share, in the reporting currency',
             'rates': 'decimals; 0.09 means 9 percent',
         },
         'year_index': (
             'Index 0 is the baseline period. Index 1 is the first forecast year. '
             'year is the last explicit year, so a full series has year + 1 values. '
-            'The baseline is the latest 10-K fiscal year, or the article\'s trailing '
-            'twelve months when that is newer.'
+            'The baseline is the last completed fiscal year, never trailing twelve '
+            'months, because EBITDA growth is measured from it.'
         ),
+        'baseline_sources': {
+            'priority': list(BASELINE_PRIORITY),
+            'rule': (
+                'Each year-0 field comes from the first source that has it for the '
+                'baseline fiscal year: the article, then an attached filing, then the '
+                'SEC 10-K, then yfinance. build_baseline does the merge.'
+            ),
+            'year': (
+                'The baseline year is the article\'s fiscal year when it states one, '
+                'else the attachment\'s, else the latest 10-K, else the latest yfinance '
+                'annual statement. Lower sources only fill that same year. A newer '
+                'fiscal year in the data is a warning, not a reason to move year 0.'
+            ),
+            'reported_leaves': (
+                'Every reported baseline leaf needs basis fiscal_year, a period_end '
+                'equal to baseline.date, and the reporting currency. ttm and quarter '
+                'are rejected.'
+            ),
+            'attachment': (
+                'A filing the user attached. Use source attachment and evidence as '
+                'page plus quote, for example "p. 47: Total revenue 1,200.4".'
+            ),
+            'canadian': (
+                'A ticker ending in .TO, .V, .CN, or .NE, or country CA, never calls '
+                'the SEC. Pass the TSX symbol yfinance uses, such as SHOP.TO.'
+            ),
+            'yahoo': (
+                'Optional: pip install -e ".[yahoo]". Unofficial and for personal use. '
+                'EBITDA is rebuilt as operating income plus D&A plus SBC. Total Debt can '
+                'include leases. A listing that trades in another currency gets a '
+                'converted price.'
+            ),
+        },
         'ebitda_definition': (
             'EBITDA must be before stock-based compensation. The model subtracts sbc. '
-            'The 10-K helper adds sbc back into EBITDA. If an article\'s EBITDA is '
+            'The SEC and yfinance helpers add sbc back into EBITDA. If an article\'s EBITDA is '
             'after stock-based compensation, add sbc back and record '
             'ebitda_definition as before_sbc. after_sbc is rejected.'
         ),
@@ -95,15 +131,18 @@ def describe_inputs():
             'A bolt-on acquisition becomes one acquisitions entry. Use the deal value and the multiple, or the acquired EBITDA.',
             'An asset sale or a stake sale becomes one disposals entry.',
             'Excess cash, net operating losses, and non-operating assets become cash, nol, and noa. Use 0 only as an explicit assumption.',
-            'The current share price becomes market.price, with as_of set to the date of that price. The author\'s price target becomes article.price_target and nothing else.',
+            'Results for the last fiscal year become the baseline, with basis fiscal_year. Trailing-twelve-month or quarterly results are not year 0; leave them out and let a lower source fill the fiscal year.',
+            'The current share price becomes market.price, with as_of set to the date of that price and the reporting currency. The author\'s price target becomes article.price_target and nothing else.',
             'If the article does not give a discount rate, terminal growth, or terminal ROIC, those are assumptions. Say what you used and why.',
         ],
         'do_not': [
             'Do not tune inputs so value_per_share matches the article\'s price target.',
             'Do not put the price target anywhere except article.price_target.',
             'Do not send a list of company method calls. Send the intents in the case.',
-            'Do not treat 10-K debt as a full-horizon series. It is year 0 only.',
-            'Do not treat the latest 10-K as trailing twelve months once a later 10-Q is the source of the article\'s numbers.',
+            'Do not treat baseline debt as a full-horizon series. It is year 0 only.',
+            'Do not use trailing twelve months or a quarter as year 0. Use the last completed fiscal year.',
+            'Do not mix fiscal years or currencies in the baseline.',
+            'Do not call the SEC for a Canadian company.',
             'Do not call display_fin. run_case returns the numbers.',
         ],
     }
@@ -114,26 +153,26 @@ def _fields():
         _field('ticker', 'string', 'Article or the user', 'The company the article is about.', True),
         _field('year', 'integer', 'assumption', 'How many years to forecast before the terminal year. 10 is a common assumption.', True),
         _field('path', 'ebitda, earnings, or fcfe', 'assumption', 'Omit to use the EBITDA path.', False),
-        _field('market.shares', 'millions of shares', '10-K share count or the article', 'All classes. The 10-K helper returns this beside the dollar baseline, not inside it.', True),
-        _field('market.price', 'dollars per share', 'article or a quoted market price', 'Current price, with as_of. Required for buybacks when distribution.price is omitted.', False),
+        _field('market.shares', 'millions of shares', 'article, attachment, 10-K, or yfinance', 'All classes. build_baseline and the 10-K helper return this beside the baseline, not inside it.', True),
+        _field('market.price', 'per share, reporting currency', 'article or build_baseline (yfinance)', 'Current price, with as_of and currency. A listing in another currency must be converted. Required for buybacks when distribution.price is omitted.', False),
         _field('rates.re', 'decimal', 'assumption, unless the article builds a discount rate', 'Cost of equity. Must be greater than gt.', True),
         _field('rates.rd', 'decimal', 'assumption or the article\'s stated cost of debt', 'Cost of debt. Required on the EBITDA path.', True),
         _field('rates.t', 'decimal', 'assumption; 0.21 is the US federal statutory rate', 'Marginal tax rate.', True),
         _field('rates.te', 'decimal', 'article, when year-1 cash tax is not the marginal rate', 'Optional effective tax rate for year 1.', False),
         _field('rates.gt', 'decimal', 'assumption', 'Terminal growth. Must be below re.', True),
         _field('rates.roict', 'decimal', 'assumption', 'Terminal return on invested capital, used for terminal depreciation.', True),
-        _field('baseline.date', 'YYYY-MM-DD', 'article period or 10-K period end', 'The baseline period, year index 0.', True),
-        _field('baseline.ebitda', 'millions', 'article or 10-K', 'Year-0 EBITDA before stock-based compensation.', True),
-        _field('baseline.ebitda_definition', 'before_sbc or after_sbc', 'article wording or 10-K', 'Record which EBITDA you used. after_sbc is rejected.', False),
-        _field('baseline.capex', 'millions', 'article or 10-K', 'Year-0 capital expenditure. Positive is a cash outflow.', True),
-        _field('baseline.da', 'millions, or a short list', 'article or 10-K', 'Depreciation. Later years are calculated from capex and ROIC, so a full horizon is not required.', True),
-        _field('baseline.tax', 'millions', 'article or 10-K', 'Year-0 tax expense.', True),
-        _field('baseline.interest', 'millions', 'article or 10-K', 'Year-0 interest expense. Later years are rd times prior debt.', True),
-        _field('baseline.sbc', 'millions', 'article or 10-K', 'Year-0 stock-based compensation. Required even when it is zero.', True),
-        _field('baseline.debt', 'millions', 'article or 10-K', 'Year-0 debt only. The debt intent builds the rest of the horizon.', True),
-        _field('baseline.cash', 'millions', 'article or 10-K', 'Excess cash. The 10-K helper adds short-term investments when that fact exists; drop them when you want a tighter figure.', True),
-        _field('baseline.nol', 'millions', 'article, otherwise an assumption', 'Net operating loss. Not in the 10-K helper.', True),
-        _field('baseline.noa', 'millions', 'article, otherwise an assumption', 'Non-operating assets. Not in the 10-K helper.', True),
+        _field('baseline.date', 'YYYY-MM-DD', 'fiscal year end from the article, attachment, 10-K, or yfinance', 'The last completed fiscal year, year index 0. Every reported baseline leaf has this period_end.', True),
+        _field('baseline.ebitda', 'millions', 'article, attachment, 10-K, then yfinance', 'Year-0 EBITDA before stock-based compensation.', True),
+        _field('baseline.ebitda_definition', 'before_sbc or after_sbc', 'same source as baseline.ebitda', 'Record which EBITDA you used. after_sbc is rejected.', False),
+        _field('baseline.capex', 'millions', 'article, attachment, 10-K, then yfinance', 'Year-0 capital expenditure. Positive is a cash outflow.', True),
+        _field('baseline.da', 'millions, or a short list', 'article, attachment, 10-K, then yfinance', 'Depreciation. Later years are calculated from capex and ROIC, so a full horizon is not required.', True),
+        _field('baseline.tax', 'millions', 'article, attachment, 10-K, then yfinance', 'Year-0 tax expense.', True),
+        _field('baseline.interest', 'millions', 'article, attachment, 10-K, then yfinance', 'Year-0 interest expense. Later years are rd times prior debt.', True),
+        _field('baseline.sbc', 'millions', 'article, attachment, 10-K, then yfinance', 'Year-0 stock-based compensation. Required even when it is zero.', True),
+        _field('baseline.debt', 'millions', 'article, attachment, 10-K, then yfinance', 'Year-0 debt only. The debt intent builds the rest of the horizon. Yahoo Total Debt can include leases.', True),
+        _field('baseline.cash', 'millions', 'article, attachment, 10-K, then yfinance', 'Excess cash. The 10-K and yfinance helpers include short-term investments when they exist; drop them when you want a tighter figure.', True),
+        _field('baseline.nol', 'millions', 'article or attachment, otherwise an assumption', 'Net operating loss. Not in the SEC or yfinance helpers.', True),
+        _field('baseline.noa', 'millions', 'article or attachment, otherwise an assumption', 'Non-operating assets. Not in the SEC or yfinance helpers.', True),
         _field('forecast.ebitda_growth', 'list of decimals', 'article guidance or forecast', 'Growth after year 0. Do not also send a full EBITDA path.', False),
         _field('forecast.ebitda', 'millions for every year', 'article forecast table', 'Explicit EBITDA including year 0. Must cover the whole horizon.', False),
         _field('forecast.margin_path', 'me, mc, gsnext', 'article margin and sales outlook', 'Optional companion to ebitda_growth. me and mc must be non-zero.', False),
@@ -147,7 +186,7 @@ def _fields():
         _field('disposals', 'list of sales', 'article asset sales', 'amount is gross proceeds in millions.', False),
         _field('distribution', 'one mode', 'article capital return', 'Exactly one policy. See distribution_modes.', True),
         _field('article.published', 'YYYY-MM-DD', 'article', 'Compared with market.price as_of. An older price is a warning.', False),
-        _field('article.price_target', 'dollars per share', 'article', 'Reported next to the model value. Not used in the calculation.', False),
+        _field('article.price_target', 'per share', 'article', 'Reported next to the model value. Not used in the calculation.', False),
         _field('earnings.e', 'year-0 earnings', 'article', 'Only when path is earnings.', False),
         _field('earnings.payout', 'decimal or list', 'article', 'Payout ratio. Terminal payout is 1 - gt/roe.', False),
         _field('earnings.gf', 'growth rates', 'article', 'Earnings growth.', False),
