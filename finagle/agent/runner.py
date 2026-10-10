@@ -17,9 +17,14 @@ from finagle.company import company
 _LOCK = threading.Lock()
 
 _YEAR_COLUMNS = (
-    'ebitda', 'capex', 'fcf', 'fcfe', 'fcff', 'debt', 'cash', 'cashBS',
-    'shares', 'price', 'dividend', 'equity', 'firm',
+    'ebitda', 'capex', 'MnA', 'dDebt', 'fcf', 'fcfe', 'fcff', 'debt', 'cash',
+    'cashBS', 'shares', 'price', 'dividend', 'equity', 'firm',
 )
+
+# Model EBITDA more than this far from the article's total, or MnA more than
+# this far from the disclosed deal spend, is called out beside the value.
+_EBITDA_GAP = 0.05
+_MNA_GAP = 0.10
 
 _CTOR_ORDER = (
     'ticker', 'rd', 're', 't', 'te', 'shares', 'price', 'gt', 'roict',
@@ -72,7 +77,8 @@ def run_case(case):
             raise
 
 
-def sanity_flags(re, gt, cash, fcfe, terminal_wacc):
+def sanity_flags(re, gt, cash, fcfe, terminal_wacc, reconciliation=None,
+                 mna_total=None, deal_spend_total=None):
     '''Flags a person should read beside the value. They do not change it.'''
     flags = []
     if _any_below(cash, 0):
@@ -83,6 +89,17 @@ def sanity_flags(re, gt, cash, fcfe, terminal_wacc):
         flags.append('re <= gt')
     if terminal_wacc is not None and gt is not None and terminal_wacc <= gt:
         flags.append('wacc <= gt')
+    for row in reconciliation or []:
+        gap = row.get('gap_pct')
+        if gap is not None and abs(gap) > _EBITDA_GAP:
+            flags.append(
+                'model EBITDA differs from the article total by more than 5%'
+            )
+            break
+    if mna_total is not None and deal_spend_total is not None:
+        scale = max(abs(mna_total), abs(deal_spend_total))
+        if scale and abs(mna_total - deal_spend_total) / scale > _MNA_GAP:
+            flags.append('MnA differs from disclosed deal spend by more than 10%')
     return flags
 
 
@@ -144,12 +161,16 @@ def _execute(case, compiled, validation):
     result['fcfet'] = _number(getattr(model, 'fcfet', None))
     result['terminal_wacc'] = _at(fin, 'wacc', -1)
     result['years'] = _years(fin)
+    result['acquisitions_summary'] = _acquisitions_summary(model)
+    result['ebitda_reconciliation'] = _ebitda_reconciliation(result['years'], case)
     result['log'] = records
     rates = unwrap(case).get('rates') or {}
     cash = [row.get('cash') for row in result['years']]
     fcfe = [row.get('fcfe') for row in result['years']]
+    mna_total, deal_spend_total = _deal_spend_totals(result['years'], case)
     result['sanity_flags'] = sanity_flags(
         rates.get('re'), rates.get('gt'), cash, fcfe, result['terminal_wacc'],
+        result['ebitda_reconciliation'], mna_total, deal_spend_total,
     )
     result['ok'] = error is None and not any(row['level'] == 'ERROR' for row in records)
     return result
@@ -213,6 +234,81 @@ def _call_line(step):
     return 'model.%s(%s)' % (name, ', '.join(ordered))
 
 
+def _acquisitions_summary(model):
+    '''One row per deal: the year it is paid, the EBITDA it adds, and the multiple.'''
+    deals = getattr(model, '_deals', None) or []
+    series = getattr(model, '_deal_ebitdas', None) or []
+    rows = []
+    for deal, acquired_path in zip(deals, series):
+        year = int(deal['year_a'])
+        acquired = None
+        if year + 1 < len(acquired_path):
+            acquired = _number(acquired_path[year + 1])
+        multiple = _number(deal.get('multiple'))
+        mna = None
+        if acquired is not None and multiple is not None:
+            mna = multiple * acquired
+        implied = None
+        if mna is not None and acquired:
+            implied = mna / acquired
+        rows.append({
+            'year': year,
+            'mna': mna,
+            'acquired_ebitda': acquired,
+            'multiple': implied,
+        })
+    return rows
+
+
+def _ebitda_reconciliation(years, case):
+    '''Compare model EBITDA with the article's total, when the article states one.'''
+    article = unwrap(case).get('article') or {}
+    stated = article.get('ebitda_total')
+    if not isinstance(stated, list):
+        return []
+    rows = []
+    for index, article_ebitda in enumerate(stated):
+        if index >= len(years):
+            break
+        model_ebitda = years[index].get('ebitda')
+        gap = None
+        gap_pct = None
+        if _number(model_ebitda) is not None and _number(article_ebitda) is not None:
+            gap = model_ebitda - article_ebitda
+            if article_ebitda:
+                gap_pct = gap / float(article_ebitda)
+        rows.append({
+            'year': index,
+            'model': model_ebitda,
+            'article': article_ebitda,
+            'gap': gap,
+            'gap_pct': gap_pct,
+        })
+    return rows
+
+
+def _deal_spend_totals(years, case):
+    '''Return total MnA and disclosed deal spend, or (None, None) when undisclosed.'''
+    forecast = unwrap(case).get('forecast') or {}
+    disclosure = forecast.get('acquisition_disclosure') or {}
+    if not isinstance(disclosure, dict) or disclosure.get('status') != 'future_deals':
+        return None, None
+    spend = disclosure.get('deal_spend')
+    if not isinstance(spend, list):
+        return None, None
+    spend_total = 0
+    for item in spend:
+        number = _number(item)
+        if number is not None:
+            spend_total += number
+    mna_total = 0
+    for row in years:
+        number = _number(row.get('MnA'))
+        if number is not None:
+            mna_total += number
+    return mna_total, spend_total
+
+
 def _years(fin):
     rows = []
     for index, label in enumerate(list(fin.index)):
@@ -247,6 +343,8 @@ def _blocked(case, validation):
         'terminal_wacc': None,
         'article_price_target': target,
         'years': [],
+        'acquisitions_summary': [],
+        'ebitda_reconciliation': [],
         'log': [],
         'sanity_flags': [],
         'validation': validation,

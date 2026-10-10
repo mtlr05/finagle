@@ -4,16 +4,21 @@ Errors and missing fields stop a run. Warnings are returned with the result
 and do not stop it.
 '''
 
+import re
+
 from finagle.agent.schema import (
+    ACQUISITION_DISCLOSURES,
     BASES,
     DEBT_MODES,
     DISTRIBUTION_MODES,
     DWC_MODES,
+    EBITDA_BASES,
     EBITDA_DEFINITIONS,
     PATHS,
     PRICE_PATHS,
     SOURCES,
     is_leaf,
+    iter_leaves,
     unwrap,
 )
 
@@ -23,6 +28,15 @@ _ABSENT = object()
 # share count were not entered in millions.
 _RATIO_LOW = 0.05
 _RATIO_HIGH = 500
+
+# Average EBITDA growth above this, with no acquisitions, usually means the
+# path includes EBITDA the case never pays for.
+_GROWTH_WARN = 0.10
+
+_ACQUISITION_WORDING = re.compile(
+    r'acquired|inorganic|m\s*&\s*a|\bdeals?\b',
+    re.IGNORECASE,
+)
 
 _TOP_LEVEL = {
     'path', 'ticker', 'year', 'market', 'rates', 'baseline', 'forecast',
@@ -96,6 +110,8 @@ def _check_ebitda(case, errors, warnings, missing):
         _read(case, errors, missing, True, 'baseline', name)
     _read(case, errors, missing, False, 'baseline', 'ebitda_definition')
     _read(case, errors, missing, False, 'baseline', 'revenue')
+    _read(case, errors, missing, True, 'forecast', 'ebitda_basis')
+    _read_acquisition_disclosure(case, errors, missing)
     _read(case, errors, missing, False, 'forecast', 'ebitda_growth')
     _read(case, errors, missing, False, 'forecast', 'ebitda')
     _read(case, errors, missing, False, 'forecast', 'capex')
@@ -113,6 +129,7 @@ def _check_ebitda(case, errors, warnings, missing):
     _read(case, errors, missing, False, 'distribution', 'schedule')
     _read(case, errors, missing, False, 'distribution', 'price')
     _read(case, errors, missing, False, 'distribution', 'price_path')
+    _read(case, errors, missing, False, 'article', 'ebitda_total')
     _read_article(case, errors, missing)
     _read_deals(case, errors, missing)
     _reject_other_paths(case, 'ebitda', errors)
@@ -124,6 +141,7 @@ def _check_ebitda(case, errors, warnings, missing):
     if year is None:
         return
     _check_ebitda_forecast(data, year, errors, warnings, missing)
+    _check_acquisition_consistency(case, data, year, errors, warnings, missing)
     _check_debt_intent(data, year, errors, missing)
     _check_distribution_intent(data, errors, missing)
     _check_series(data, year, errors)
@@ -314,7 +332,13 @@ def _check_series(data, year, errors):
         if not isinstance(deal, dict):
             errors.append('acquisitions[%d] must be an object' % index)
             continue
-        if not _year_in_horizon(deal.get('year'), year, low=0):
+        deal_year = deal.get('year')
+        if _is_last_explicit_year(deal_year, year):
+            errors.append(
+                'acquisitions[%d].year is the last forecast year, so the acquired '
+                'EBITDA would fall past the horizon' % index
+            )
+        elif not _year_in_horizon(deal_year, year, low=0):
             errors.append('acquisitions[%d].year is outside the forecast horizon' % index)
     for index, disposal in enumerate(data.get('disposals') or []):
         if isinstance(disposal, dict) and not _year_in_horizon(disposal.get('year'), year, low=0):
@@ -366,6 +390,111 @@ def _read_deals(case, errors, missing):
         _read_at(disposal, errors, missing, True, '%s.year' % prefix, 'year')
         _read_at(disposal, errors, missing, True, '%s.amount' % prefix, 'amount')
         _read_at(disposal, errors, missing, False, '%s.tax' % prefix, 'tax')
+
+
+def _read_acquisition_disclosure(case, errors, missing):
+    node = _dig(case, 'forecast', 'acquisition_disclosure')
+    if node is _ABSENT or node is None:
+        missing.append('forecast.acquisition_disclosure')
+        return
+    if not isinstance(node, dict) or is_leaf(node):
+        errors.append('forecast.acquisition_disclosure must be an object')
+        return
+    _read_at(node, errors, missing, True, 'forecast.acquisition_disclosure.status', 'status')
+    _read_at(node, errors, missing, False, 'forecast.acquisition_disclosure.deal_spend', 'deal_spend')
+
+
+def _check_acquisition_consistency(case, data, year, errors, warnings, missing):
+    '''Acquired EBITDA and the price paid for it have to be the same story.'''
+    forecast = data.get('forecast') or {}
+    basis = forecast.get('ebitda_basis')
+    if basis is not None and basis not in EBITDA_BASES:
+        errors.append('forecast.ebitda_basis must be organic or total')
+
+    disclosure = forecast.get('acquisition_disclosure') or {}
+    if not isinstance(disclosure, dict):
+        disclosure = {}
+    status = disclosure.get('status')
+    if status is not None and status not in ACQUISITION_DISCLOSURES:
+        errors.append(
+            'forecast.acquisition_disclosure.status must be future_deals or none'
+        )
+    spend = disclosure.get('deal_spend')
+    if status == 'future_deals':
+        if spend is None:
+            missing.append('forecast.acquisition_disclosure.deal_spend')
+        elif not isinstance(spend, list) or not all(_is_number(item) for item in spend):
+            errors.append(
+                'forecast.acquisition_disclosure.deal_spend must be a list of numbers'
+            )
+        else:
+            _check_length(
+                'forecast.acquisition_disclosure.deal_spend', spend, year, errors, exact=False,
+            )
+
+    deals = data.get('acquisitions') or []
+    has_deals = isinstance(deals, list) and len(deals) > 0
+    if basis == 'total' and has_deals:
+        errors.append(
+            'forecast.ebitda_basis is total and acquisitions are set, so acquired '
+            'EBITDA would be counted twice'
+        )
+    if status == 'future_deals' and not has_deals:
+        errors.append(
+            'acquisition_disclosure is future_deals but there are no acquisitions'
+        )
+    if status == 'none' and has_deals:
+        errors.append(
+            'acquisition_disclosure is none but acquisitions are set'
+        )
+    if has_deals:
+        return
+
+    average = _average_ebitda_growth(forecast)
+    if average is not None and average > _GROWTH_WARN:
+        warnings.append(
+            'average EBITDA growth is %.1f%% and there are no acquisitions. '
+            'If that growth includes acquired EBITDA, use an organic path and '
+            'book the purchase price with acquisitions, or MnA stays zero.'
+            % (average * 100)
+        )
+    if _forecast_mentions_acquisitions(case):
+        warnings.append(
+            'forecast evidence mentions acquisitions but the case has none, so MnA stays zero'
+        )
+
+
+def _average_ebitda_growth(forecast):
+    growth = forecast.get('ebitda_growth')
+    if isinstance(growth, bool):
+        return None
+    if isinstance(growth, list) and growth and all(_is_number(item) for item in growth):
+        return sum(growth) / float(len(growth))
+    if _is_number(growth):
+        return float(growth)
+    path = forecast.get('ebitda')
+    if not isinstance(path, list) or len(path) < 2:
+        return None
+    rates = []
+    for previous, following in zip(path, path[1:]):
+        if _is_number(previous) and _is_number(following) and previous > 0:
+            rates.append((following - previous) / float(previous))
+    if not rates:
+        return None
+    return sum(rates) / float(len(rates))
+
+
+def _forecast_mentions_acquisitions(case):
+    forecast = case.get('forecast')
+    if not isinstance(forecast, dict):
+        return False
+    for path, node in iter_leaves(forecast, 'forecast'):
+        if path.startswith('forecast.acquisition_disclosure'):
+            continue
+        evidence = node.get('evidence') or ''
+        if _ACQUISITION_WORDING.search(evidence):
+            return True
+    return False
 
 
 def _read_article(case, errors, missing):
@@ -523,6 +652,14 @@ def _check_length(path, value, year, errors, exact):
         errors.append(
             '%s is short: expected %d values, got %d' % (path, year + 1, length)
         )
+
+
+def _is_last_explicit_year(value, year):
+    if isinstance(value, bool) or not isinstance(value, (int, float)):
+        return False
+    if isinstance(value, float) and not value.is_integer():
+        return False
+    return int(value) == year
 
 
 def _year_in_horizon(value, year, low):

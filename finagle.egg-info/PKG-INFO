@@ -1,0 +1,15 @@
+Metadata-Version: 2.1
+Name: finagle
+Version: 0.0.0
+Summary: for the valuation of a company
+Home-page: https://github.com/mtlr05/finagle
+Requires-Dist: numpy
+Requires-Dist: pandas
+Requires-Dist: xlrd
+Requires-Dist: datetime
+Requires-Dist: openpyxl
+Requires-Dist: scipy
+Provides-Extra: agent
+Requires-Dist: mcp>=1.2; extra == "agent"
+Provides-Extra: yahoo
+Requires-Dist: yfinance; extra == "yahoo"

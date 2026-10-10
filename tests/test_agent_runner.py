@@ -56,6 +56,8 @@ def disck_case():
             0.68, 3.6, 0, 51.7, 0, 0, 0,
         ),
         'forecast': {
+            'ebitda_basis': leaf('organic'),
+            'acquisition_disclosure': {'status': leaf('none')},
             'ebitda': leaf(ebitda),
             'capex': leaf(capex),
             'sbc': leaf([0] * 11),
@@ -88,6 +90,11 @@ def frg_acquire_case():
             0, 70, 0, 1072.9, 159.72, 127.4, 55.86,
         ),
         'forecast': {
+            'ebitda_basis': leaf('organic'),
+            'acquisition_disclosure': {
+                'status': leaf('future_deals'),
+                'deal_spend': leaf([6.52 * 330 * 0.2696]),
+            },
             'ebitda_growth': leaf([0.15, 0.1, 0.1, 0.1, 0.1]),
             'capex': leaf(capex),
             'sbc': leaf([0] * 11),
@@ -129,6 +136,8 @@ def pl_allocate_case():
             0, 0, 80, 0, 598 - 45, 114.6, 0,
         ),
         'forecast': {
+            'ebitda_basis': leaf('organic'),
+            'acquisition_disclosure': {'status': leaf('none')},
             'ebitda': leaf(ebitda),
             'capex': leaf(capex),
             'sbc': leaf([80, 80, 80, 80, 80]),
@@ -216,6 +225,11 @@ def test_acquired_ebitda_becomes_a_fraction_of_that_years_ebitda():
             '2021-12-31', 10, 1, 1, 1, 0.5, 0, 5, 10, 0, 0,
         ),
         'forecast': {
+            'ebitda_basis': leaf('organic'),
+            'acquisition_disclosure': {
+                'status': leaf('future_deals'),
+                'deal_spend': leaf([0, 17.6]),
+            },
             'ebitda': leaf([10, 11, 12, 13]),
             'capex': leaf([1, 1, 1, 1]),
             'sbc': leaf([0, 0, 0, 0]),
@@ -251,6 +265,11 @@ def test_deal_value_uses_the_multiple_before_the_fraction():
             '2021-12-31', 10, 1, 1, 1, 0.5, 0, 5, 10, 0, 0,
         ),
         'forecast': {
+            'ebitda_basis': leaf('organic'),
+            'acquisition_disclosure': {
+                'status': leaf('future_deals'),
+                'deal_spend': leaf([0, 22]),
+            },
             'ebitda': leaf([10, 11, 12, 13]),
             'capex': leaf([1, 1, 1, 1]),
             'sbc': leaf([0, 0, 0, 0]),
@@ -335,6 +354,96 @@ def test_earnings_path_reports_equity_only():
     answer = pd.read_pickle(os.path.join(os.path.dirname(__file__), 'fcf_from_earnings.pkl'))
     equity = [row['equity'] for row in result['years']]
     assert equity == pytest.approx(list(answer.loc['equity']), rel=1e-9, abs=1e-9)
+
+
+def test_acquisition_reporting_shows_mna_and_reconciles_ebitda():
+    case = {
+        'path': 'ebitda',
+        'ticker': 'DEAL',
+        'year': 3,
+        'market': {'shares': leaf(10)},
+        'rates': _rates(0.05, 0.10, 0.21, 0.02, 0.30),
+        'baseline': _baseline(
+            '2021-12-31', 10, 1, 1, 1, 0.5, 0, 5, 10, 0, 0,
+        ),
+        'forecast': {
+            'ebitda_basis': leaf('organic'),
+            'acquisition_disclosure': {
+                'status': leaf('future_deals'),
+                'deal_spend': leaf([0, 17.6]),
+            },
+            'ebitda': leaf([10, 11, 12, 13]),
+            'capex': leaf([1, 1, 1, 1]),
+            'sbc': leaf([0, 0, 0, 0]),
+            'dwc': {'mode': leaf('zero')},
+        },
+        'debt': {'mode': leaf('hold')},
+        'acquisitions': [{
+            'year': leaf(1),
+            'acquired_ebitda': leaf(2.2),
+            'multiple': leaf(8),
+            'leverage': leaf(0),
+            'next_growth': leaf(0.1),
+            'capex_frac': leaf(0.1),
+            'pay_from_cash': leaf(False),
+        }],
+        'distribution': {'mode': leaf('none')},
+        'article': {'ebitda_total': leaf([10, 11, 14.2, 15.42])},
+    }
+    result = run_case(case)
+    assert result['ok'], {'error': result.get('error'), 'log': result['log'], 'flags': result['sanity_flags']}
+    assert result['years'][1]['MnA'] == pytest.approx(17.6)
+    assert result['years'][0]['MnA'] == pytest.approx(0)
+    assert 'dDebt' in result['years'][1]
+    summary = result['acquisitions_summary']
+    assert len(summary) == 1
+    assert summary[0]['year'] == 1
+    assert summary[0]['mna'] == pytest.approx(17.6)
+    assert summary[0]['acquired_ebitda'] == pytest.approx(2.2)
+    assert summary[0]['multiple'] == pytest.approx(8)
+    assert result['ebitda_reconciliation'][2]['model'] == pytest.approx(14.2)
+    assert result['ebitda_reconciliation'][2]['gap'] == pytest.approx(0, abs=1e-9)
+    assert result['sanity_flags'] == []
+
+
+def test_a_gap_in_ebitda_or_deal_spend_is_flagged():
+    case = {
+        'path': 'ebitda',
+        'ticker': 'DEAL',
+        'year': 3,
+        'market': {'shares': leaf(10)},
+        'rates': _rates(0.05, 0.10, 0.21, 0.02, 0.30),
+        'baseline': _baseline(
+            '2021-12-31', 10, 1, 1, 1, 0.5, 0, 5, 10, 0, 0,
+        ),
+        'forecast': {
+            'ebitda_basis': leaf('organic'),
+            'acquisition_disclosure': {
+                'status': leaf('future_deals'),
+                'deal_spend': leaf([0, 100]),
+            },
+            'ebitda': leaf([10, 11, 12, 13]),
+            'capex': leaf([1, 1, 1, 1]),
+            'sbc': leaf([0, 0, 0, 0]),
+            'dwc': {'mode': leaf('zero')},
+        },
+        'debt': {'mode': leaf('hold')},
+        'acquisitions': [{
+            'year': leaf(1),
+            'acquired_ebitda': leaf(2.2),
+            'multiple': leaf(8),
+            'leverage': leaf(0),
+            'next_growth': leaf(0.1),
+            'capex_frac': leaf(0.1),
+            'pay_from_cash': leaf(False),
+        }],
+        'distribution': {'mode': leaf('none')},
+        'article': {'ebitda_total': leaf([10, 11, 20, 15.42])},
+    }
+    result = run_case(case)
+    assert result['ok']
+    assert 'model EBITDA differs from the article total by more than 5%' in result['sanity_flags']
+    assert 'MnA differs from disclosed deal spend by more than 10%' in result['sanity_flags']
 
 
 def test_sanity_flags_follow_the_cash_rules():

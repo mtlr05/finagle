@@ -11,6 +11,8 @@ DWC_MODES = ('zero', 'path')
 DISTRIBUTION_MODES = ('none', 'max_buybacks', 'buyback_schedule', 'retain')
 PRICE_PATHS = ('constant', 'proportional')
 EBITDA_DEFINITIONS = ('before_sbc', 'after_sbc')
+EBITDA_BASES = ('organic', 'total')
+ACQUISITION_DISCLOSURES = ('future_deals', 'none')
 
 _LEAF = {
     'type': 'object',
@@ -155,15 +157,40 @@ CASE_JSON_SCHEMA = {
             'description': (
                 'How the baseline becomes a full horizon. '
                 'Set ebitda_growth or a full ebitda path, not both. '
+                'That path is organic unless ebitda_basis is total. '
+                'Deals that close after year 0 are acquisitions, not extra EBITDA in the path. '
                 'capex and sbc may be shorter than the horizon; they are extended. '
                 'dwc is not extended: zero, or one value per year.'
             ),
             'properties': {
+                'ebitda_basis': _leaf_prop(
+                    'organic or total. organic excludes deals that close after year 0. '
+                    'total already includes acquired EBITDA and is only valid when there are no future deals.'
+                ),
+                'acquisition_disclosure': {
+                    'type': 'object',
+                    'additionalProperties': False,
+                    'description': (
+                        'Required on the EBITDA path. status future_deals means the forecast buys EBITDA '
+                        'after year 0 and deal_spend is the enterprise value paid in each year, the dollars '
+                        'that become MnA. status none means the forecast has no future deals; the evidence '
+                        'must say so.'
+                    ),
+                    'properties': {
+                        'status': _leaf_prop('future_deals or none.'),
+                        'deal_spend': _leaf_prop(
+                            'Enterprise value paid by year, millions. Index 0 is the baseline. '
+                            'Required when status is future_deals. Same dollars as deal_value, which become MnA.'
+                        ),
+                    },
+                },
                 'ebitda_growth': _leaf_prop(
-                    'EBITDA growth rates after year 0. A short list fades toward gt.'
+                    'EBITDA growth rates after year 0, for the organic business and deals already paid for. '
+                    'A short list fades toward gt. Do not include EBITDA from deals that close after year 0.'
                 ),
                 'ebitda': _leaf_prop(
-                    'Explicit EBITDA for every year, including year 0. Do not also set ebitda_growth.'
+                    'Explicit EBITDA for every year, including year 0, on the basis in ebitda_basis. '
+                    'Do not also set ebitda_growth.'
                 ),
                 'margin_path': {
                     'description': (
@@ -307,6 +334,10 @@ CASE_JSON_SCHEMA = {
                 'url': _leaf_prop('Article URL.'),
                 'published': _leaf_prop('Publication date, YYYY-MM-DD.'),
                 'price_target': _leaf_prop('The article\'s price target, if it states one. Not a model input.'),
+                'ebitda_total': _leaf_prop(
+                    'The article\'s total EBITDA by year, including acquired EBITDA, if it states one. '
+                    'Reported beside the model EBITDA. Not a model input.'
+                ),
             },
         },
     },

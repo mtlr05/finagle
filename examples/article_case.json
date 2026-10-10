@@ -29,6 +29,11 @@
     "noa": {"value": 0, "source": "assumption", "evidence": "The article mentions no non-operating assets."}
   },
   "forecast": {
+    "ebitda_basis": {"value": "organic", "source": "assumption", "evidence": "The guided growth is the existing business. The valve maker is a separate acquisition, not inside that growth rate."},
+    "acquisition_disclosure": {
+      "status": {"value": "future_deals", "source": "article", "evidence": "The company agreed to buy a small valve maker for $90 million"},
+      "deal_spend": {"value": [0, 90], "source": "article", "evidence": "buy a small valve maker for $90 million"}
+    },
     "ebitda_growth": {"value": [0.08, 0.06], "source": "article", "evidence": "EBITDA growth of 8% in 2024 and 6% in 2025"},
     "capex": {"value": [36, 40, 40], "source": "article", "evidence": "Capex should run about $40 million in each of 2024 and 2025"},
     "dwc": {

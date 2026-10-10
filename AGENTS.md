@@ -36,6 +36,7 @@ Build each figure with `finagle.agent.schema.leaf(value, source, evidence, perio
 
 ## Rules
 
+- Forecast EBITDA is organic unless `forecast.ebitda_basis` says `total`. Deals that close after year 0 go in `acquisitions`, with the purchase price, so `MnA` is not zero. Say which in `forecast.acquisition_disclosure`. Do not put acquired EBITDA in the EBITDA path and also in `acquisitions`. A positive year on a deal-spend row, including the first forecast year, is a future deal: do not leave that year at zero in `deal_spend`.
 - The valuation must come from `run_case`. Do not calculate it yourself.
 - Do not edit `finagle/company.py`, `finagle/sec.py`, or the notebooks to get a valuation.
 - Do not change inputs to match the article's price target. The price target goes only in `article.price_target`.

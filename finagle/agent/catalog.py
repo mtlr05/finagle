@@ -10,10 +10,11 @@ Use the finagle tools. Do not invent a list of Python method calls. Fill a case,
 2. Call describe_inputs. Match what you extracted to those fields. Note the units: money in millions of the reporting currency, shares in millions, price per share in that same currency, rates as decimals.
 3. Year 0 is the last completed fiscal year, never trailing twelve months or a quarter, because EBITDA growth is measured from it. Give every reported baseline leaf basis fiscal_year, its period_end, and its currency. Leave out trailing-twelve-month figures. Growth rates from the article must be relative to that fiscal year.
 4. Fill the baseline in this order: the article, then the attached filing (source attachment, evidence as page plus quote, such as "p. 47: Total revenue 1,200.4"), then the SEC 10-K, then yfinance. Call build_baseline with the article leaves and the attachment leaves; it fills the rest for the same fiscal year and reports what it skipped. Canadian companies skip the SEC: pass the TSX symbol, such as SHOP.TO or a .V symbol for the TSX Venture. Use the price build_baseline returns in the reporting currency. Read its warnings: a newer fiscal year in the data does not move year 0. Debt from any source is one year, not a forecast.
-5. Anything still empty is an assumption. Set source to assumption and write the reason in evidence. Do not leave a required field out, and do not silently use zero for working capital, net operating losses, non-operating assets, or stock-based compensation.
-6. Call validate_case. Fix every error and every missing field. Warnings stay in the result; read them before you run.
-7. Call run_case.
-8. Report value per share from the free-cash-flow-to-equity model and from the dividend discount model, the terminal free cash flow to equity, and the assumptions (every leaf whose source is assumption). If the result has a log error, or ok is false, the run failed: report the error and do not present the number as a valuation. Place the article's price target beside the result when the article states one.
+5. Keep acquired EBITDA and its purchase price together. Forecast EBITDA is one of three things: the organic business, the full-year run-rate of deals that closed in or before year 0 (already paid for, so they stay in the EBITDA path and get no MnA), or deals that close after year 0. Put only the first two in forecast.ebitda or forecast.ebitda_growth, and set forecast.ebitda_basis to organic. Each later deal is one acquisitions entry. deal_value is the enterprise value paid and multiple is the EV/EBITDA paid, so the purchase is booked as MnA in the deal year and the EBITDA starts the next year. If the article has an organic growth row, use it; acquired EBITDA is total EBITDA minus organic. If it gives total EBITDA and a deal-spend row, infer the multiple as cumulative spend divided by acquired EBITDA. If it implies future M&A but states no spend, assume the spend and the multiple and label both as assumptions. A deal that closes during year 1 mixes the full-year run-rate of deals already paid for with new deal EBITDA: keep the run-rate in the organic path and put only the new deal in acquisitions. Copy every year of a deal-spend row that falls inside the horizon into deal_spend, including year 1. A positive number in that row is a future deal, not the run-rate of a deal that already closed. The run-rate is only the EBITDA that shows up with no spend attached. Do not leave that year at zero. Set forecast.acquisition_disclosure status to future_deals and give deal_spend, in millions by year, as the same dollars as deal_value (those dollars become MnA). Set status to none, with a quote showing the forecast has no future deals, only when that is true. Do not put acquired EBITDA in the path and also list the deal. Set ebitda_basis to total only when the article's EBITDA forecast already includes acquired EBITDA and there are no future deals. If the article states a total EBITDA path, copy it to article.ebitda_total so the result can reconcile it. That path is not an input.
+6. Anything still empty is an assumption. Set source to assumption and write the reason in evidence. Do not leave a required field out, and do not silently use zero for working capital, net operating losses, non-operating assets, or stock-based compensation.
+7. Call validate_case. Fix every error and every missing field. Warnings stay in the result; read them before you run.
+8. Call run_case.
+9. Report value per share from the free-cash-flow-to-equity model and from the dividend discount model, the terminal free cash flow to equity, and the assumptions (every leaf whose source is assumption). If the result has a log error, or ok is false, the run failed: report the error and do not present the number as a valuation. Place the article's price target beside the result when the article states one. Read acquisitions_summary, the MnA column, and ebitda_reconciliation before you report the value. If any reconciliation gap is wider than 5%, the organic path is wrong: change it and run again. A deal paid in year t adds EBITDA starting in year t+1, so organic EBITDA in that later year is the article's total minus the EBITDA those deals add.
 
 EBITDA must be before stock-based compensation. The model subtracts stock-based compensation, and the SEC and yfinance baselines already add it back. If the article's EBITDA is after stock-based compensation, add it back and set ebitda_definition to before_sbc.
 
@@ -128,7 +129,8 @@ def describe_inputs():
             'A leverage target or a debt paydown becomes debt mode target. A stated debt schedule becomes path. Silence about a change becomes hold.',
             'A buyback authorization or a dollar repurchase program becomes distribution mode buyback_schedule. End the schedule with 0 when the program has an end date; otherwise the last amount continues every year. Language that all free cash flow will be used for buybacks becomes max_buybacks.',
             'A dividend per share becomes dividend_per_share. After the list ends, the total dividend grows with free cash flow and is never cut.',
-            'A bolt-on acquisition becomes one acquisitions entry. Use the deal value and the multiple, or the acquired EBITDA.',
+            'A bolt-on acquisition becomes one acquisitions entry. Use the deal value and the multiple, or the acquired EBITDA. The EBITDA path stays organic: pay in the deal year, and the acquired EBITDA starts the next year.',
+            'An organic growth row, or total EBITDA minus organic, is the EBITDA path. A deal-spend or acquisition-consideration row is forecast.acquisition_disclosure.deal_spend and the acquisitions entries. Do not leave MnA at zero while that EBITDA is in the path.',
             'An asset sale or a stake sale becomes one disposals entry.',
             'Excess cash, net operating losses, and non-operating assets become cash, nol, and noa. Use 0 only as an explicit assumption.',
             'Results for the last fiscal year become the baseline, with basis fiscal_year. Trailing-twelve-month or quarterly results are not year 0; leave them out and let a lower source fill the fiscal year.',
@@ -142,6 +144,9 @@ def describe_inputs():
             'Do not treat baseline debt as a full-horizon series. It is year 0 only.',
             'Do not use trailing twelve months or a quarter as year 0. Use the last completed fiscal year.',
             'Do not mix fiscal years or currencies in the baseline.',
+            'Do not put EBITDA that includes future acquisitions into the forecast and leave MnA at zero. Split organic EBITDA from the deals and book the purchase price with acquisitions.',
+            'Do not leave a year at zero in deal_spend when the article\'s deal-spend row is positive that year, including year 1.',
+            'Do not set ebitda_basis to total and also list acquisitions. That counts the acquired EBITDA twice.',
             'Do not call the SEC for a Canadian company.',
             'Do not call display_fin. run_case returns the numbers.',
         ],
@@ -173,8 +178,11 @@ def _fields():
         _field('baseline.cash', 'millions', 'article, attachment, 10-K, then yfinance', 'Excess cash. The 10-K and yfinance helpers include short-term investments when they exist; drop them when you want a tighter figure.', True),
         _field('baseline.nol', 'millions', 'article or attachment, otherwise an assumption', 'Net operating loss. Not in the SEC or yfinance helpers.', True),
         _field('baseline.noa', 'millions', 'article or attachment, otherwise an assumption', 'Non-operating assets. Not in the SEC or yfinance helpers.', True),
-        _field('forecast.ebitda_growth', 'list of decimals', 'article guidance or forecast', 'Growth after year 0. Do not also send a full EBITDA path.', False),
-        _field('forecast.ebitda', 'millions for every year', 'article forecast table', 'Explicit EBITDA including year 0. Must cover the whole horizon.', False),
+        _field('forecast.ebitda_basis', 'organic or total', 'article forecast', 'organic excludes deals after year 0. total is only valid when the forecast has no future deals.', True),
+        _field('forecast.acquisition_disclosure.status', 'future_deals or none', 'article M&A forecast', 'future_deals when the forecast buys EBITDA after year 0. none only with a quote that it does not.', True),
+        _field('forecast.acquisition_disclosure.deal_spend', 'millions by year', 'article deal spend, or an assumption', 'Enterprise value paid, same dollars as deal_value. Those dollars become MnA. Required when status is future_deals.', False),
+        _field('forecast.ebitda_growth', 'list of decimals', 'article guidance or forecast', 'Organic growth after year 0, plus the run-rate of deals already paid for. Do not also send a full EBITDA path.', False),
+        _field('forecast.ebitda', 'millions for every year', 'article forecast table', 'Explicit EBITDA including year 0, on the basis in ebitda_basis. Must cover the whole horizon.', False),
         _field('forecast.margin_path', 'me, mc, gsnext', 'article margin and sales outlook', 'Optional companion to ebitda_growth. me and mc must be non-zero.', False),
         _field('forecast.capex', 'millions, short or full', 'article capex guide', 'From year 0. A short list is extended. Omit to start from baseline capex and extend that.', False),
         _field('forecast.sbc', 'millions, short or full', 'article', 'From year 0. A short list is extended toward sbc_rate_terminal, or at the last ratio.', False),
@@ -182,11 +190,12 @@ def _fields():
         _field('forecast.dwc', 'zero or a full path', 'article working-capital comment, otherwise an assumption', 'Not extended. mode path must have year + 1 values.', True),
         _field('dividend_per_share', 'dollars, or a list', 'article dividend', 'Index 0 is the baseline year. After the list ends, the total dividend grows with free cash flow and is never cut. Omit for no dividend.', False),
         _field('debt', 'hold, path, or target', 'article leverage or debt plan', 'Exactly one policy. See debt_modes.', True),
-        _field('acquisitions', 'list of deals', 'article M&A', 'Empty when the article has no deals. See acquisition_size.', False),
+        _field('acquisitions', 'list of deals', 'article M&A', 'One entry per deal that closes after the organic path. Empty only when acquisition_disclosure status is none. See acquisition_size.', False),
         _field('disposals', 'list of sales', 'article asset sales', 'amount is gross proceeds in millions.', False),
         _field('distribution', 'one mode', 'article capital return', 'Exactly one policy. See distribution_modes.', True),
         _field('article.published', 'YYYY-MM-DD', 'article', 'Compared with market.price as_of. An older price is a warning.', False),
         _field('article.price_target', 'per share', 'article', 'Reported next to the model value. Not used in the calculation.', False),
+        _field('article.ebitda_total', 'millions by year', 'article forecast table', 'The article\'s total EBITDA, including acquired EBITDA. Reconciled with the model. Not an input.', False),
         _field('earnings.e', 'year-0 earnings', 'article', 'Only when path is earnings.', False),
         _field('earnings.payout', 'decimal or list', 'article', 'Payout ratio. Terminal payout is 1 - gt/roe.', False),
         _field('earnings.gf', 'growth rates', 'article', 'Earnings growth.', False),

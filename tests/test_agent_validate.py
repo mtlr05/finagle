@@ -41,6 +41,8 @@ def minimal_case():
             'noa': leaf(0),
         },
         'forecast': {
+            'ebitda_basis': leaf('organic'),
+            'acquisition_disclosure': {'status': leaf('none')},
             'ebitda_growth': leaf([0.10]),
             'dwc': {'mode': leaf('zero')},
         },
@@ -214,12 +216,99 @@ def test_schema_names_the_case_fields():
     assert 'leaf' in tool_schema['$defs']
 
 
+def _deal(year):
+    return {
+        'year': leaf(year),
+        'deal_value': leaf(20),
+        'multiple': leaf(8),
+        'leverage': leaf(0),
+        'next_growth': leaf(0.05),
+        'capex_frac': leaf(0.1),
+        'pay_from_cash': leaf(False),
+    }
+
+
+def test_total_ebitda_plus_acquisitions_is_double_counting():
+    case = minimal_case()
+    case['forecast']['ebitda_basis'] = leaf('total')
+    case['forecast']['acquisition_disclosure'] = {
+        'status': leaf('future_deals'),
+        'deal_spend': leaf([0, 20]),
+    }
+    case['acquisitions'] = [_deal(1)]
+    report = validate_case(case)
+    assert any('counted twice' in error for error in report['errors'])
+
+
+def test_future_deals_without_an_acquisition_is_rejected():
+    case = minimal_case()
+    case['forecast']['acquisition_disclosure'] = {
+        'status': leaf('future_deals'),
+        'deal_spend': leaf([0, 20]),
+    }
+    report = validate_case(case)
+    assert any('no acquisitions' in error for error in report['errors'])
+
+
+def test_none_disclosure_with_an_acquisition_is_rejected():
+    case = minimal_case()
+    case['acquisitions'] = [_deal(1)]
+    report = validate_case(case)
+    assert any('disclosure is none' in error for error in report['errors'])
+
+
+def test_a_deal_in_the_last_forecast_year_is_rejected():
+    case = minimal_case()
+    case['forecast']['acquisition_disclosure'] = {
+        'status': leaf('future_deals'),
+        'deal_spend': leaf([0, 0, 20]),
+    }
+    case['acquisitions'] = [_deal(2)]
+    report = validate_case(case)
+    assert any('last forecast year' in error for error in report['errors'])
+    assert not any('outside the forecast horizon' in error for error in report['errors'])
+
+
+def test_fast_ebitda_growth_without_acquisitions_warns():
+    case = minimal_case()
+    case['forecast']['ebitda_growth'] = leaf([0.25, 0.20])
+    report = validate_case(case)
+    assert report['errors'] == []
+    assert any('no acquisitions' in warning for warning in report['warnings'])
+
+
+def test_acquisition_wording_without_acquisitions_warns():
+    case = minimal_case()
+    case['forecast']['ebitda_growth'] = leaf(
+        [0.05], evidence='includes acquired EBITDA from the deal program',
+    )
+    report = validate_case(case)
+    assert report['errors'] == []
+    assert any('MnA stays zero' in warning for warning in report['warnings'])
+
+
+def test_organic_growth_with_a_matching_deal_is_clean():
+    case = minimal_case()
+    case['forecast']['acquisition_disclosure'] = {
+        'status': leaf('future_deals'),
+        'deal_spend': leaf([0, 20]),
+    }
+    case['acquisitions'] = [_deal(1)]
+    report = validate_case(case)
+    assert report['errors'] == []
+    assert report['missing'] == []
+    assert report['warnings'] == []
+
+
 def test_catalog_and_prompt_tell_the_bot_what_to_supply():
     catalog = describe_inputs()
     paths = [field['path'] for field in catalog['fields']]
     assert 'baseline.ebitda' in paths
     assert 'distribution' in paths
     assert 'article.price_target' in paths
+    assert 'forecast.ebitda_basis' in paths
+    assert 'forecast.acquisition_disclosure.status' in paths
+    assert 'article.ebitda_total' in paths
     assert 'millions of the reporting currency' in catalog['units']['money']
     assert 'before stock-based compensation' in catalog['ebitda_definition']
     assert catalog['baseline_sources']['priority'] == ['article', 'attachment', '10k', 'yahoo']
@@ -230,6 +319,10 @@ def test_catalog_and_prompt_tell_the_bot_what_to_supply():
     assert 'validate_case' in VALUE_FROM_ARTICLE
     assert 'run_case' in VALUE_FROM_ARTICLE
     assert 'price target' in VALUE_FROM_ARTICLE.lower()
+    assert 'ebitda_basis' in VALUE_FROM_ARTICLE
+    assert 'acquisition_disclosure' in VALUE_FROM_ARTICLE
+    assert 'MnA' in VALUE_FROM_ARTICLE
+    assert any('MnA' in item for item in catalog['do_not'])
 
 
 def test_package_import_does_not_pull_in_the_agent():
