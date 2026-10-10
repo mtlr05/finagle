@@ -2,7 +2,9 @@
 
 import copy
 
-SOURCES = ('article', '10k', 'assumption')
+SOURCES = ('article', 'attachment', '10k', 'yahoo', 'assumption')
+BASELINE_PRIORITY = ('article', 'attachment', '10k', 'yahoo')
+BASES = ('fiscal_year', 'ttm', 'quarter')
 PATHS = ('ebitda', 'earnings', 'fcfe')
 DEBT_MODES = ('hold', 'path', 'target')
 DWC_MODES = ('zero', 'path')
@@ -19,22 +21,40 @@ _LEAF = {
             'description': (
                 'The figure itself: a number, a string, a boolean, null, '
                 'or an array of numbers. Rates are decimals (0.09 is 9%). '
-                'Money is millions of dollars. Shares are millions of shares. '
-                'Price is dollars per share.'
+                'Money is millions in the reporting currency. Shares are millions of shares. '
+                'Price is per share, in the same currency as the financials.'
             ),
         },
         'source': {
             'type': 'string',
             'enum': list(SOURCES),
-            'description': 'article, 10k, or assumption.',
+            'description': (
+                'article, attachment (a filing the user attached), 10k (SEC), '
+                'yahoo (yfinance), or assumption.'
+            ),
         },
         'evidence': {
             'type': 'string',
-            'description': 'A short quote from the article, an XBRL tag, or the reason for an assumption.',
+            'description': (
+                'A short quote from the article, a page and quote from the attachment, '
+                'an XBRL tag, a Yahoo row name, or the reason for an assumption.'
+            ),
         },
         'period_end': {
             'type': 'string',
             'description': 'YYYY-MM-DD period the figure belongs to, when it is a reported number.',
+        },
+        'basis': {
+            'type': 'string',
+            'enum': list(BASES),
+            'description': (
+                'fiscal_year, ttm, or quarter. Reported baseline figures must be '
+                'fiscal_year: the last completed fiscal year, not trailing twelve months.'
+            ),
+        },
+        'currency': {
+            'type': 'string',
+            'description': 'ISO currency code of a money figure or price, such as USD or CAD.',
         },
         'as_of': {
             'type': 'string',
@@ -83,7 +103,8 @@ CASE_JSON_SCHEMA = {
             'properties': {
                 'shares': _leaf_prop('Shares outstanding, all classes, in millions.'),
                 'price': _leaf_prop(
-                    'Current price in dollars per share. This is not the article\'s price target.'
+                    'Current price per share, in the same currency as the baseline. '
+                    'This is not the article\'s price target.'
                 ),
             },
         },
@@ -104,9 +125,13 @@ CASE_JSON_SCHEMA = {
             'type': 'object',
             'additionalProperties': False,
             'description': (
-                'Year-0 figures, in millions of dollars. '
+                'Year-0 figures, in millions of the reporting currency. Year 0 is the last '
+                'completed fiscal year, not trailing twelve months, because EBITDA growth is '
+                'measured from it. Fill each figure from the article, then an attached filing, '
+                'then the SEC (not for Canadian companies), then yfinance; build_baseline does this. '
+                'Reported figures need period_end equal to date, basis fiscal_year, and one currency. '
                 'EBITDA must be before stock-based compensation, because the model subtracts sbc. '
-                'last_10k already adds sbc back.'
+                'The SEC and yfinance helpers already add sbc back.'
             ),
             'properties': {
                 'date': _leaf_prop('Baseline period end, YYYY-MM-DD.'),
@@ -316,11 +341,16 @@ def is_leaf(node):
     )
 
 
-def leaf(value, source, evidence, period_end=None, as_of=None, note=None):
+def leaf(value, source, evidence, period_end=None, as_of=None, note=None,
+         basis=None, currency=None):
     '''Build one provenance leaf.'''
     item = {'value': value, 'source': source, 'evidence': evidence}
     if period_end is not None:
         item['period_end'] = period_end
+    if basis is not None:
+        item['basis'] = basis
+    if currency is not None:
+        item['currency'] = currency
     if as_of is not None:
         item['as_of'] = as_of
     if note:
@@ -379,6 +409,8 @@ def provenance(case):
             'source': node.get('source'),
             'evidence': node.get('evidence'),
             'period_end': node.get('period_end'),
+            'basis': node.get('basis'),
+            'currency': node.get('currency'),
             'as_of': node.get('as_of'),
         })
     return rows
