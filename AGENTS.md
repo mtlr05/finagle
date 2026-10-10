@@ -10,16 +10,27 @@ Set up from the repository root:
 
 ```bash
 pip install -e .
+pip install -e ".[yahoo]"   # optional: yfinance, needed for Canadian companies
 ```
 
-Then use these four functions from `finagle.agent`, in this order:
+Then use these functions from `finagle.agent`, in this order:
 
 1. `describe_inputs()` lists every field, its unit, and the article wording that maps onto it.
-2. `get_10k_baseline(ticker, user_agent)` fills baseline figures the article does not give. The SEC requires a user agent with a name and an email address. Use the one the user gives you, or the `FINAGLE_SEC_USER_AGENT` environment variable.
+2. `build_baseline(ticker, article=..., attachment=..., user_agent=...)` fills year 0. Pass the baseline leaves you read from the article and from any filing the user attached. It fills the remaining fields from the SEC 10-K, then yfinance, for the same fiscal year. It returns the baseline leaves, shares, a price in the reporting currency, which source supplied each field, what it skipped, and warnings. The SEC requires a user agent with a name and an email address. Use the one the user gives you, or the `FINAGLE_SEC_USER_AGENT` environment variable.
 3. `validate_case(case)` returns errors, missing fields, and warnings. Fix every error and missing field.
 4. `run_case(case)` compiles the case into `company` methods, runs `value()`, and returns the result.
 
-Build each figure with `finagle.agent.schema.leaf(value, source, evidence)`. `source` is `article` (with a short quote), `10k`, or `assumption` (with a reason).
+Build each figure with `finagle.agent.schema.leaf(value, source, evidence, period_end=..., basis=..., currency=...)`. `source` is `article` (with a short quote), `attachment` (page plus quote, such as `"p. 47: Total revenue 1,200.4"`), `10k`, `yahoo`, or `assumption` (with a reason).
+
+## Year 0
+
+- Year 0 is the last completed fiscal year. Never use trailing twelve months or a quarter, because EBITDA growth is measured from year 0. Article growth rates must be relative to that fiscal year.
+- Each baseline field comes from the first of these that has it for that year: the article, the attached filing, the SEC 10-K, then yfinance.
+- Every reported baseline leaf needs `basis: "fiscal_year"`, a `period_end` equal to `baseline.date`, and the same `currency`. `market.price` must be in that currency too; use the converted price `build_baseline` returns.
+- Canadian companies skip the SEC. Use the TSX symbol yfinance uses, such as `SHOP.TO`, or a `.V` symbol for the TSX Venture.
+- `nol` and `noa` are not in the SEC or yfinance data. Take them from the article or the attachment, or label them as assumptions.
+- yfinance is unofficial, Yahoo limits its data to personal use, and its row names change. Check its figures against a filing when they matter. Its `Total Debt` can include leases.
+- `get_10k_baseline(ticker, user_agent)` is still available when you only want the SEC figures.
 
 [`examples/article_case.json`](examples/article_case.json) is a complete case built from [`examples/sample_article.md`](examples/sample_article.md), a fictional article. Use it as the model for the case shape.
 
@@ -40,7 +51,7 @@ Build each figure with `finagle.agent.schema.leaf(value, source, evidence)`. `so
 
 ## Other ways to connect
 
-An agent that cannot run Python here can use the MCP server, which exposes the same four functions and the workflow as the `value_from_article` prompt. It needs Python 3.10 or later:
+An agent that cannot run Python here can use the MCP server, which exposes the same functions, plus `get_10k_baseline`, and the workflow as the `value_from_article` prompt. It needs Python 3.10 or later:
 
 ```bash
 pip install -e ".[agent]"
@@ -51,4 +62,4 @@ Use `--transport streamable-http` for a remote client.
 
 ## Tests
 
-`pytest` from the repository root. CI runs Python 3.9.12. The MCP tests are skipped when `mcp` is not installed.
+`pytest` from the repository root. CI runs Python 3.9.12. The MCP tests are skipped when `mcp` is not installed. The source tests use fake SEC and yfinance clients and need no network.

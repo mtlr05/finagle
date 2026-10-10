@@ -205,7 +205,7 @@ The period is the last fiscal year on that 10-K. It matches trailing twelve mont
 
 `finagle.agent` lets an AI agent, such as Grok, value a company from a stock article. `import finagle` does not load it, and it does not change how `company` or the notebooks work.
 
-The agent reads the article, fills gaps from the latest 10-K, and writes a case: each figure plus its source (`article`, `10k`, or `assumption`) and a quote or reason. It does not write method calls. `run_case` validates the case, turns it into the same `company` methods a notebook would call, in the order `company` replays them, and runs `value()` in a temporary directory. The result has both values per share, the assumptions, any log errors, and `notebook_code`, which you can paste into a notebook to rerun the case yourself.
+The agent reads the article, and any filing you attach, fills the remaining baseline figures from the SEC and yfinance, and writes a case: each figure plus its source (`article`, `attachment`, `10k`, `yahoo`, or `assumption`) and a quote or reason. It does not write method calls. `run_case` validates the case, turns it into the same `company` methods a notebook would call, in the order `company` replays them, and runs `value()` in a temporary directory. The result has both values per share, the assumptions, any log errors, and `notebook_code`, which you can paste into a notebook to rerun the case yourself.
 
 ```python
 import json
@@ -220,6 +220,34 @@ print(result["notebook_code"])
 
 [`examples/article_case.json`](examples/article_case.json) is built from [`examples/sample_article.md`](examples/sample_article.md), a fictional article. Its only warning is that the quoted price is older than the publication date.
 
+### Where year 0 comes from
+
+Year 0 is the last completed fiscal year, never trailing twelve months, because EBITDA growth is measured from it. Each baseline figure comes from the first source that has it for that year:
+
+1. the article
+2. a filing you attach, such as an annual report (the agent reads it and quotes the page)
+3. the SEC 10-K, skipped for Canadian companies
+4. yfinance
+
+`build_baseline` does the merge. The baseline year is the article's fiscal year when it states one; lower sources only fill that same year, and a newer fiscal year in the data is reported as a warning. Every reported figure carries `basis: "fiscal_year"`, its `period_end`, and its `currency`, and `validate_case` rejects a mix of years or currencies.
+
+```python
+from finagle.agent import build_baseline
+from finagle.agent.schema import leaf
+
+article = {
+    "ebitda": leaf(7000, "article", "<quote from the article>", period_end="2026-04-26",
+                   basis="fiscal_year", currency="USD"),
+}
+result = build_baseline("ATD.TO", article=article)
+result["baseline"], result["shares"], result["price"]
+result["sources_used"], result["skipped"], result["warnings"], result["layers"]
+```
+
+Canadian companies use the TSX symbol yfinance knows, such as `ATD.TO`, or `.V` for the TSX Venture. When a listing trades in a different currency from its statements, for example a TSX stock that reports in US dollars, `price` is converted to the reporting currency and the quoted price is kept in the evidence.
+
+yfinance is optional: `pip install -e ".[yahoo]"`. It is unofficial, Yahoo limits its data to personal use, and its row names change, so check figures against a filing when they matter. EBITDA from yfinance is rebuilt as operating income plus D&A plus stock-based compensation, and its `Total Debt` can include leases.
+
 ### Connecting Grok
 
 If Grok can clone this repository and run Python, point it at [`AGENTS.md`](AGENTS.md) and give it the article text. Paste the text instead of a link, because paywalled posts often will not load for the bot.
@@ -233,12 +261,14 @@ Article:
 <paste the article text>
 ```
 
+Attach the company's annual report or 10-K as well when you have it; the agent uses it before the SEC and yfinance. For a Canadian company, give the TSX symbol, such as `ATD.TO`.
+
 Add any assumptions you want held fixed, for example "use a 9% cost of equity and 2% terminal growth unless the article states otherwise". Otherwise Grok chooses them and labels them as assumptions.
 
 If Grok can only read the repository, or runs somewhere that cannot execute this code, run the MCP server instead. It exposes the same functions as tools, plus the workflow as the `value_from_article` prompt. It needs Python 3.10 or later:
 
 ```bash
-pip install -e ".[agent]"
+pip install -e ".[agent,yahoo]"
 export FINAGLE_SEC_USER_AGENT="Your Name you@example.com"
 python -m finagle.agent.mcp_server --transport stdio
 ```
@@ -426,7 +456,7 @@ pip install -r requirements.txt -e .
 pytest
 ```
 
-CI (`.github/workflows/python-app.yml`) runs on pushes and pull requests to `main` using Python 3.9.12 and `pytest`. Tests compare `value()` outputs to pickled snapshots under `tests/`. The `test_agent_*` files replay several of those snapshots through `run_case` and run the article example. The MCP tests are skipped unless the `agent` extra is installed, which needs Python 3.10 or later.
+CI (`.github/workflows/python-app.yml`) runs on pushes and pull requests to `main` using Python 3.9.12 and `pytest`. Tests compare `value()` outputs to pickled snapshots under `tests/`. The `test_agent_*` files replay several of those snapshots through `run_case`, run the article example, and test the baseline sources with fake SEC and yfinance clients, so they need no network. The MCP tests are skipped unless the `agent` extra is installed, which needs Python 3.10 or later.
 
 ## Known limitations
 
