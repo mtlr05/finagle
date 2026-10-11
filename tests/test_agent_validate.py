@@ -311,11 +311,13 @@ def test_catalog_and_prompt_tell_the_bot_what_to_supply():
     assert 'article.ebitda_total' in paths
     assert 'millions of the reporting currency' in catalog['units']['money']
     assert 'before stock-based compensation' in catalog['ebitda_definition']
-    assert catalog['baseline_sources']['priority'] == ['article', 'attachment', '10k', 'yahoo']
+    assert catalog['baseline_sources']['priority'] == ['prompt', 'article', 'attachment', '10k', 'yahoo']
     assert 'describe_inputs' in VALUE_FROM_ARTICLE
     assert 'build_baseline' in VALUE_FROM_ARTICLE
+    assert 'update_case' in VALUE_FROM_ARTICLE
     assert 'trailing twelve months' in VALUE_FROM_ARTICLE
     assert 'TSX' in VALUE_FROM_ARTICLE
+    assert '0.055' in catalog['baseline_sources']['defaults']
     assert 'validate_case' in VALUE_FROM_ARTICLE
     assert 'run_case' in VALUE_FROM_ARTICLE
     assert 'price target' in VALUE_FROM_ARTICLE.lower()

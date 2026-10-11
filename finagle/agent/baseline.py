@@ -13,6 +13,7 @@ from finagle.sec import (
     SUBMISSIONS_URL,
     TICKER_URL,
     _cik_for_ticker,
+    _first,
     _get_json,
     baseline_from_facts,
     last_10k,
@@ -39,6 +40,7 @@ def get_10k_baseline(ticker, user_agent, scale=1_000_000):
     cik = _cik_for_ticker(_get_json(TICKER_URL, user_agent), ticker)
     facts = _get_json(FACTS_URL.format(cik=cik), user_agent)
     shares = shares_from_facts(facts, period_end, scale=scale)
+    _add_gross_margin(leaves, facts, period_end, scale)
     return _result(ticker, period_end, scale, leaves, shares)
 
 
@@ -79,9 +81,30 @@ def sec_baseline(ticker, user_agent, period_end=None, scale=1_000_000):
         leaves['date']['evidence'] = '10-K report date'
         leaves['date'].pop('note', None)
     shares = shares_from_facts(facts, period_end, scale=scale)
+    _add_gross_margin(leaves, facts, period_end, scale)
     result = _result(ticker, period_end, scale, leaves, shares)
     result['latest_period_end'] = latest
     return result
+
+
+def _add_gross_margin(leaves, facts, period_end, scale):
+    '''Gross profit divided by revenue, when the 10-K has both.'''
+    revenue = (leaves.get('revenue') or {}).get('value')
+    if not revenue or not scale:
+        return
+    usgaap = (facts or {}).get('facts', {}).get('us-gaap', {})
+    found = _first(usgaap, ('GrossProfit',), period_end, 'flow')
+    if not found or found.get('val') is None:
+        return
+    gross = found['val'] / scale
+    leaves['gross_margin'] = {
+        'value': gross / revenue,
+        'source': '10k',
+        'evidence': 'us-gaap:GrossProfit / revenue',
+        'period_end': period_end,
+        'basis': 'fiscal_year',
+        'note': 'Gross profit %.6g million divided by revenue %.6g million.' % (gross, revenue),
+    }
 
 
 def _10k_periods(submissions):

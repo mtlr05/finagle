@@ -2,8 +2,8 @@
 
 import copy
 
-SOURCES = ('article', 'attachment', '10k', 'yahoo', 'assumption')
-BASELINE_PRIORITY = ('article', 'attachment', '10k', 'yahoo')
+SOURCES = ('prompt', 'article', 'attachment', '10k', 'yahoo', 'assumption')
+BASELINE_PRIORITY = ('prompt', 'article', 'attachment', '10k', 'yahoo')
 BASES = ('fiscal_year', 'ttm', 'quarter')
 PATHS = ('ebitda', 'earnings', 'fcfe')
 DEBT_MODES = ('hold', 'path', 'target')
@@ -31,8 +31,8 @@ _LEAF = {
             'type': 'string',
             'enum': list(SOURCES),
             'description': (
-                'article, attachment (a filing the user attached), 10k (SEC), '
-                'yahoo (yfinance), or assumption.'
+                'prompt (stated in the request), article, attachment (another file '
+                'the user attached), 10k (SEC), yahoo (yfinance), or assumption.'
             ),
         },
         'evidence': {
@@ -63,6 +63,14 @@ _LEAF = {
             'description': 'YYYY-MM-DD date the figure was observed. Use this on market.price.',
         },
         'note': {'type': 'string'},
+        'derived_from': {
+            'type': 'array',
+            'items': {'type': 'string'},
+            'description': (
+                'Case paths this assumption was computed from. An update recomputes '
+                'the leaf when one of them changes.'
+            ),
+        },
     },
 }
 
@@ -119,8 +127,15 @@ CASE_JSON_SCHEMA = {
                 'rd': _leaf_prop('Cost of debt, decimal.'),
                 't': _leaf_prop('Marginal tax rate, decimal.'),
                 'te': _leaf_prop('Optional effective tax rate for year 1. Omit to let the model derive it.'),
-                'gt': _leaf_prop('Terminal growth rate, decimal. Must be below re.'),
+                'gt': _leaf_prop(
+                    'Terminal growth rate, decimal. Must be below re, and no higher than '
+                    'the 10-year yield when rates.risk_free is set.'
+                ),
                 'roict': _leaf_prop('Terminal ROIC, decimal. Used to set terminal depreciation.'),
+                'risk_free': _leaf_prop(
+                    '10-year government yield for the reporting currency, decimal. '
+                    'Terminal growth cannot exceed it.'
+                ),
             },
         },
         'baseline': {
@@ -129,8 +144,9 @@ CASE_JSON_SCHEMA = {
             'description': (
                 'Year-0 figures, in millions of the reporting currency. Year 0 is the last '
                 'completed fiscal year, not trailing twelve months, because EBITDA growth is '
-                'measured from it. Fill each figure from the article, then an attached filing, '
-                'then the SEC (not for Canadian companies), then yfinance; build_baseline does this. '
+                'measured from it. Fill each figure from a figure stated in the prompt, then the primary '
+                'article, then other attachments in the order the prompt gives, then the SEC '
+                '(not for Canadian companies), then yfinance; build_baseline does this. '
                 'Reported figures need period_end equal to date, basis fiscal_year, and one currency. '
                 'EBITDA must be before stock-based compensation, because the model subtracts sbc. '
                 'The SEC and yfinance helpers already add sbc back.'
@@ -140,6 +156,10 @@ CASE_JSON_SCHEMA = {
                 'ebitda': _leaf_prop('Year-0 EBITDA before stock-based compensation, millions.'),
                 'ebitda_definition': _leaf_prop('before_sbc or after_sbc. The model can only run before_sbc.'),
                 'revenue': _leaf_prop('Informational. The model fills the revenue column itself.'),
+                'gross_margin': _leaf_prop(
+                    'Year-0 gross profit divided by revenue, as a decimal. '
+                    'Used to set the contribution margin when no source states one.'
+                ),
                 'capex': _leaf_prop('Year-0 capital expenditure, millions. Positive is a cash outflow.'),
                 'da': _leaf_prop('Year-0 depreciation, or a partial list. Later years are calculated.'),
                 'tax': _leaf_prop('Year-0 cash tax, millions.'),
@@ -186,7 +206,13 @@ CASE_JSON_SCHEMA = {
                 },
                 'ebitda_growth': _leaf_prop(
                     'EBITDA growth rates after year 0, for the organic business and deals already paid for. '
-                    'A short list fades toward gt. Do not include EBITDA from deals that close after year 0.'
+                    'A short list fades toward gt. Do not include EBITDA from deals that close after year 0. '
+                    'Kept when a source states it. Otherwise derived from sales_growth.'
+                ),
+                'sales_growth': _leaf_prop(
+                    'Sales growth after year 0. Used to build EBITDA growth only when '
+                    'ebitda_growth was not stated. The last rate is the next sales growth '
+                    'when gsnext was not stated.'
                 ),
                 'ebitda': _leaf_prop(
                     'Explicit EBITDA for every year, including year 0, on the basis in ebitda_basis. '
@@ -194,9 +220,10 @@ CASE_JSON_SCHEMA = {
                 ),
                 'margin_path': {
                     'description': (
-                        'Optional. Requires ebitda_growth. me is the ending EBITDA margin, '
-                        'mc is the contribution margin, gsnext is the next sales growth. '
-                        'me and mc must be non-zero.'
+                        'Sales-driven forecast after the explicit growth list. Requires ebitda_growth. '
+                        'me is the EBITDA margin, mc is the contribution margin, and gsnext '
+                        'is the next sales growth. me and mc must be non-zero. '
+                        'Filled from sources, or computed when they are missing.'
                     ),
                     'type': 'object',
                     'additionalProperties': False,
@@ -373,7 +400,7 @@ def is_leaf(node):
 
 
 def leaf(value, source, evidence, period_end=None, as_of=None, note=None,
-         basis=None, currency=None):
+         basis=None, currency=None, derived_from=None):
     '''Build one provenance leaf.'''
     item = {'value': value, 'source': source, 'evidence': evidence}
     if period_end is not None:
@@ -386,6 +413,8 @@ def leaf(value, source, evidence, period_end=None, as_of=None, note=None,
         item['as_of'] = as_of
     if note:
         item['note'] = note
+    if derived_from:
+        item['derived_from'] = list(derived_from)
     return item
 
 
@@ -443,5 +472,6 @@ def provenance(case):
             'basis': node.get('basis'),
             'currency': node.get('currency'),
             'as_of': node.get('as_of'),
+            'derived_from': node.get('derived_from'),
         })
     return rows

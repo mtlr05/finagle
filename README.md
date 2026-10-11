@@ -205,7 +205,7 @@ The period is the last fiscal year on that 10-K. It matches trailing twelve mont
 
 `finagle.agent` lets an AI agent, such as Grok, value a company from a stock article. `import finagle` does not load it, and it does not change how `company` or the notebooks work.
 
-The agent reads the article, and any filing you attach, fills the remaining baseline figures from the SEC and yfinance, and writes a case: each figure plus its source (`article`, `attachment`, `10k`, `yahoo`, or `assumption`) and a quote or reason. It does not write method calls. `run_case` validates the case, turns it into the same `company` methods a notebook would call, in the order `company` replays them, and runs `value()` in a temporary directory. The result has both values per share, the assumptions, any log errors, and `notebook_code`, which you can paste into a notebook to rerun the case yourself.
+The agent reads the article, and any other files you attach, fills the remaining baseline figures from the SEC and yfinance, and writes a case: each figure plus its source (`prompt`, `article`, `attachment`, `10k`, `yahoo`, or `assumption`) and a quote or reason. It does not write method calls. `run_case` validates the case, turns it into the same `company` methods a notebook would call, in the order `company` replays them, and runs `value()` in a temporary directory. The result has both values per share, the assumptions, any log errors, and `notebook_code`, which you can paste into a notebook to rerun the case yourself.
 
 ```python
 import json
@@ -224,12 +224,15 @@ print(result["notebook_code"])
 
 Year 0 is the last completed fiscal year, never trailing twelve months, because EBITDA growth is measured from it. Each baseline figure comes from the first source that has it for that year:
 
-1. the article
-2. a filing you attach, such as an annual report (the agent reads it and quotes the page)
-3. the SEC 10-K, skipped for Canadian companies
-4. yfinance
+1. a figure you state in the request
+2. the primary article, pasted or attached
+3. any other attachments, in the order you give (another article, an investor presentation, or financials)
+4. the SEC 10-K, skipped for Canadian companies
+5. yfinance
 
-`build_baseline` does the merge. The baseline year is the article's fiscal year when it states one; lower sources only fill that same year, and a newer fiscal year in the data is reported as a warning. Every reported figure carries `basis: "fiscal_year"`, its `period_end`, and its `currency`, and `validate_case` rejects a mix of years or currencies.
+`build_baseline` does the merge. The baseline year is the highest source's fiscal year; lower sources only fill that same year, and a newer fiscal year in the data is reported as a warning. Every reported figure carries `basis: "fiscal_year"`, its `period_end`, and its `currency`, and `validate_case` rejects a mix of years or currencies.
+
+When a value is still empty, the merge fills it. The EBITDA margin `me` is year-0 EBITDA over revenue. The contribution margin `mc` is the average of `me` and the gross margin, or `me` when gross margin was not found. The forecast uses those margins so the years after any stated growth list follow sales. A stated EBITDA growth rate is kept. The cost of equity is 0.055 plus the 10-year yield of the reporting currency, terminal growth equals that yield and cannot exceed it, and terminal ROIC is 15 percent. The price is the last close. With no debt policy, the target leverage is the year-0 Debt/EBITDA. A buyback uses a proportional price path.
 
 ```python
 from finagle.agent import build_baseline
@@ -242,6 +245,17 @@ article = {
 result = build_baseline("ATD.TO", article=article)
 result["baseline"], result["shares"], result["price"]
 result["sources_used"], result["skipped"], result["warnings"], result["layers"]
+```
+
+A follow-up takes the case `run_case` returned, changes the leaves you name, and reruns. It does not reread the article or call the SEC or yfinance. Derived assumptions whose inputs changed are recomputed from the numbers already in the case.
+
+```python
+from finagle.agent import update_case
+from finagle.agent.schema import leaf
+
+revised = update_case(result["case"], {
+    "rates": {"gt": leaf(0.02, "prompt", "use 2% terminal growth")},
+})
 ```
 
 Canadian companies use the TSX symbol yfinance knows, such as `ATD.TO`, or `.V` for the TSX Venture. When a listing trades in a different currency from its statements, for example a TSX stock that reports in US dollars, `price` is converted to the reporting currency and the quoted price is kept in the evidence.
@@ -263,7 +277,7 @@ Article:
 
 Attach the company's annual report or 10-K as well when you have it; the agent uses it before the SEC and yfinance. For a Canadian company, give the TSX symbol, such as `ATD.TO`.
 
-Add any assumptions you want held fixed, for example "use a 9% cost of equity and 2% terminal growth unless the article states otherwise". Otherwise Grok chooses them and labels them as assumptions.
+Add any assumptions you want held fixed, for example "use a 9% cost of equity and 2% terminal growth unless the article states otherwise". A figure you state outranks the article. Anything you do not state is filled by the defaults above, and what those defaults do not cover is labeled as an assumption. After a run, a follow-up such as "set terminal growth to 2%" is applied with `update_case`, without rereading the documents.
 
 If Grok can only read the repository, or runs somewhere that cannot execute this code, run the MCP server instead. It exposes the same functions as tools, plus the workflow as the `value_from_article` prompt. It needs Python 3.10 or later:
 

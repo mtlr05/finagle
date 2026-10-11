@@ -1,3 +1,4 @@
+import json
 import os
 
 import pandas as pd
@@ -444,6 +445,23 @@ def test_a_gap_in_ebitda_or_deal_spend_is_flagged():
     assert result['ok']
     assert 'model EBITDA differs from the article total by more than 5%' in result['sanity_flags']
     assert 'MnA differs from disclosed deal spend by more than 10%' in result['sanity_flags']
+
+
+def test_negative_terminal_depreciation_is_a_warning(tmp_path, monkeypatch):
+    monkeypatch.chdir(tmp_path)
+    case = json.load(open(os.path.join(os.path.dirname(__file__), '..', 'examples', 'article_case.json')))
+    case['baseline']['capex']['value'] = 1
+    case['baseline']['sbc']['value'] = 0
+    case['forecast']['capex']['value'] = [1]
+    case['forecast']['ebitda_growth']['value'] = [0]
+    case['rates']['gt']['value'] = 0.04
+    case['rates']['roict']['value'] = 0.05
+    result = run_case(case)
+    assert result['ok'], {'error': result.get('error'), 'log': result['log'], 'validation': result['validation']}
+    assert result['value_per_share'] > 0
+    assert result['case']['ticker'] == 'XMPL'
+    assert any('negative depreciation' in row['message'] and row['level'] == 'WARNING' for row in result['log'])
+    assert not any(row['level'] == 'ERROR' for row in result['log'])
 
 
 def test_sanity_flags_follow_the_cash_rules():

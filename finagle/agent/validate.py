@@ -72,6 +72,7 @@ def validate_case(case):
 
     _check_periods(case, errors)
     _check_currency(case, errors)
+    _check_growth_ceiling(case, errors)
     _check_stale_price(case, warnings)
     return {'errors': errors, 'warnings': warnings, 'missing': missing}
 
@@ -103,6 +104,7 @@ def _check_ebitda(case, errors, warnings, missing):
     for name in ('re', 'rd', 't', 'gt', 'roict'):
         _read(case, errors, missing, True, 'rates', name)
     _read(case, errors, missing, False, 'rates', 'te')
+    _read(case, errors, missing, False, 'rates', 'risk_free')
     for name in (
         'date', 'ebitda', 'capex', 'da', 'tax', 'interest', 'sbc', 'debt',
         'cash', 'nol', 'noa',
@@ -110,9 +112,11 @@ def _check_ebitda(case, errors, warnings, missing):
         _read(case, errors, missing, True, 'baseline', name)
     _read(case, errors, missing, False, 'baseline', 'ebitda_definition')
     _read(case, errors, missing, False, 'baseline', 'revenue')
+    _read(case, errors, missing, False, 'baseline', 'gross_margin')
     _read(case, errors, missing, True, 'forecast', 'ebitda_basis')
     _read_acquisition_disclosure(case, errors, missing)
     _read(case, errors, missing, False, 'forecast', 'ebitda_growth')
+    _read(case, errors, missing, False, 'forecast', 'sales_growth')
     _read(case, errors, missing, False, 'forecast', 'ebitda')
     _read(case, errors, missing, False, 'forecast', 'capex')
     _read(case, errors, missing, False, 'forecast', 'sbc')
@@ -581,6 +585,24 @@ def _check_currency(case, errors):
                 )
 
 
+def _check_growth_ceiling(case, errors):
+    '''Terminal growth cannot exceed the stored 10-year yield.'''
+    rates = case.get('rates')
+    if not isinstance(rates, dict):
+        return
+    gt = rates.get('gt')
+    risk_free = rates.get('risk_free')
+    if not is_leaf(gt) or not is_leaf(risk_free):
+        return
+    growth = gt.get('value')
+    yield_rate = risk_free.get('value')
+    if _is_number(growth) and _is_number(yield_rate) and growth > yield_rate + 1e-12:
+        errors.append(
+            'rates.gt is %s, above the 10-year yield of %s. Terminal growth '
+            'cannot exceed that yield.' % (growth, yield_rate)
+        )
+
+
 def _check_stale_price(case, warnings):
     price = _dig(case, 'market', 'price')
     published = _dig(case, 'article', 'published')
@@ -624,7 +646,7 @@ def _consume(node, path, errors, missing, required):
 def _check_leaf_meta(path, node, errors):
     if node.get('source') not in SOURCES:
         errors.append(
-            '%s source must be article, attachment, 10k, yahoo, or assumption' % path
+            '%s source must be prompt, article, attachment, 10k, yahoo, or assumption' % path
         )
     evidence = node.get('evidence')
     if not isinstance(evidence, str) or not evidence.strip():

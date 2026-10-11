@@ -1,4 +1,5 @@
 import pandas as pd
+import pytest
 
 from finagle.agent.baseline import (
     get_10k_baseline,
@@ -123,6 +124,24 @@ def test_sec_baseline_without_that_10k_lists_the_years(monkeypatch):
     assert not result['ok']
     assert result['periods'] == ['2024-12-31', PERIOD]
     assert result['latest_period_end'] == '2024-12-31'
+
+
+def test_gross_margin_is_gross_profit_over_revenue():
+    from finagle.agent.baseline import _add_gross_margin
+    leaves = {'revenue': {'value': 100.0}}
+    facts = {'facts': {'us-gaap': {'GrossProfit': {'units': {'USD': [{
+        'val': 40_000_000,
+        'form': '10-K',
+        'fp': 'FY',
+        'end': PERIOD,
+        'start': '2023-01-01',
+        'filed': '2024-02-20',
+        'accn': '2024-02-20',
+    }]}}}}}
+    _add_gross_margin(leaves, facts, PERIOD, 1_000_000)
+    assert leaves['gross_margin']['value'] == pytest.approx(0.4)
+    assert leaves['gross_margin']['basis'] == 'fiscal_year'
+    assert 'currency' not in leaves['gross_margin']
 
 
 def test_missing_fact_stays_visible():

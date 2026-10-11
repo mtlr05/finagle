@@ -37,6 +37,19 @@ _NOTES = {
     'debt': 'Yahoo Total Debt can include lease liabilities.',
 }
 _NOT_IN_YAHOO = ['dwc', 'nol', 'noa', 're', 'rd', 't', 'gt', 'roict', 'dividend']
+_GROSS_ROWS = ('Gross Profit',)
+
+# Last close of the 10-year yield for the reporting currency. EUR uses the
+# German bund. A currency that is not listed leaves the cost of equity unset.
+YIELD_SYMBOLS = {
+    'USD': '^TNX',
+    'CAD': 'CA10Y=RR',
+    'EUR': 'DE10Y=RR',
+    'GBP': 'GB10Y=RR',
+    'JPY': 'JP10Y=RR',
+    'AUD': 'AU10Y=RR',
+    'CHF': 'CH10Y=RR',
+}
 
 
 def yahoo_baseline(ticker, period_end=None, client=None):
@@ -102,12 +115,12 @@ def yahoo_baseline(ticker, period_end=None, client=None):
             'unofficial; check figures against the filing when they matter.'
         ),
     )
-    quoted = _quoted_price(info)
+    quoted, evidence = _quoted_price(handle, info)
     if trading and reporting and trading != reporting:
-        result['price_trading'] = _price_leaf(quoted, trading, today, 'info.currentPrice')
-        result['price'] = _converted_price(client, quoted, trading, reporting, today)
+        result['price_trading'] = _price_leaf(quoted, trading, today, evidence)
+        result['price'] = _converted_price(client, quoted, trading, reporting, today, evidence)
     else:
-        result['price'] = _price_leaf(quoted, trading or reporting, today, 'info.currentPrice')
+        result['price'] = _price_leaf(quoted, trading or reporting, today, evidence)
     return result
 
 
@@ -136,6 +149,16 @@ def _leaves(frames, period_end, currency):
         leaves[key] = _leaf(value, row or _ROWS[key][0], period_end, currency, note)
 
     leaves['ebitda'] = _ebitda(found, period_end, currency)
+    revenue = leaves['revenue']['value']
+    grow, graw = _lookup(frames, _GROSS_ROWS, period_end)
+    if graw is not None and revenue:
+        leaves['gross_margin'] = _leaf(
+            (graw / _SCALE) / revenue,
+            '%s / %s' % (grow, leaves['revenue']['evidence']),
+            period_end,
+            None,
+            'Gross profit divided by revenue.',
+        )
     leaves['ebitda_definition'] = {
         'value': 'before_sbc',
         'source': 'yahoo',
@@ -195,12 +218,27 @@ def _shares(info, today):
     return item
 
 
-def _quoted_price(info):
-    for key in ('currentPrice', 'regularMarketPrice'):
-        value = _number(info.get(key))
-        if value is not None:
-            return value
-    return None
+def _quoted_price(handle, info):
+    value = _number(info.get('previousClose'))
+    if value is not None:
+        return value, 'info.previousClose'
+    close, _as_of = _last_close(handle)
+    if close is not None:
+        return close, 'history Close'
+    return None, 'info.previousClose'
+
+
+def _last_close(handle):
+    try:
+        history = handle.history(period='5d')
+    except Exception:
+        return None, None
+    if history is None or 'Close' not in getattr(history, 'columns', ()):
+        return None, None
+    closes = history['Close'].dropna()
+    if closes.empty:
+        return None, None
+    return float(closes.iloc[-1]), _date_text(closes.index[-1])
 
 
 def _price_leaf(value, currency, today, evidence):
@@ -208,25 +246,88 @@ def _price_leaf(value, currency, today, evidence):
     if currency:
         item['currency'] = currency
     if value is None:
-        item['note'] = 'Yahoo has no currentPrice or regularMarketPrice.'
+        item['note'] = 'Yahoo has no previous close for this ticker.'
     return item
 
 
-def _converted_price(client, quoted, trading, reporting, today):
+def _converted_price(client, quoted, trading, reporting, today, evidence):
     pair = '%s%s=X' % (trading, reporting)
     rate, as_of, error = _fx_rate(client, pair)
     if quoted is None or rate is None:
-        item = _price_leaf(None, reporting, today, 'info.currentPrice converted with ' + pair)
+        item = _price_leaf(None, reporting, today, evidence + ' converted with ' + pair)
         item['note'] = (
             'The %s quote could not be converted to %s: %s'
             % (trading, reporting, error or 'no price')
         )
         return item
     item = _price_leaf(quoted * rate, reporting, today,
-                       'info.currentPrice %g %s x %s %.6g on %s'
-                       % (quoted, trading, pair, rate, as_of))
+                       '%s %g %s x %s %.6g on %s'
+                       % (evidence, quoted, trading, pair, rate, as_of))
     item['note'] = 'Converted from the %s listing price to the reporting currency.' % trading
     return item
+
+
+def risk_free_rate(currency, client=None):
+    '''Last close of the 10-year yield for the reporting currency, as a decimal.
+
+    A quote above 20 is the CBOE index and is divided by 1,000. A quote above
+    1 is a percent and is divided by 100. Anything else is already a decimal.
+    An unknown currency, or a quote that cannot be loaded, returns ok false.
+    '''
+    code = str(currency or '').strip().upper()
+    symbol = YIELD_SYMBOLS.get(code)
+    if not symbol:
+        return {
+            'ok': False,
+            'currency': code or None,
+            'error': 'No 10-year yield is mapped for %s, so the cost of equity and '
+                     'terminal growth are left unset.' % (code or 'this currency'),
+        }
+    if client is None:
+        import yfinance
+        client = yfinance.Ticker
+    try:
+        handle = client(symbol)
+        info = _info(handle)
+        raw, evidence = _quoted_price(handle, info)
+        as_of = date.today().isoformat()
+        if evidence == 'history Close':
+            _close, closed_on = _last_close(handle)
+            as_of = closed_on or as_of
+    except Exception as exc:
+        return {
+            'ok': False,
+            'symbol': symbol,
+            'error': 'The 10-year yield %s could not be loaded: %s: %s'
+                     % (symbol, type(exc).__name__, exc),
+        }
+    if raw is None:
+        return {
+            'ok': False,
+            'symbol': symbol,
+            'error': 'Yahoo has no last close for the 10-year yield %s.' % symbol,
+        }
+    value, how = _yield_decimal(raw)
+    return {
+        'ok': True,
+        'symbol': symbol,
+        'raw': raw,
+        'value': value,
+        'leaf': {
+            'value': value,
+            'source': 'yahoo',
+            'evidence': '%s %s %g on %s, %s' % (symbol, evidence, raw, as_of, how),
+            'as_of': as_of,
+        },
+    }
+
+
+def _yield_decimal(raw):
+    if raw > 20:
+        return raw / 1000.0, 'CBOE index divided by 1,000'
+    if raw > 1:
+        return raw / 100.0, 'percent divided by 100'
+    return raw, 'already a decimal'
 
 
 def _fx_rate(client, pair):
