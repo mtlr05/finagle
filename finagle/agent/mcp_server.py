@@ -20,14 +20,17 @@ from finagle.agent.catalog import VALUE_FROM_ARTICLE, describe_inputs as catalog
 from finagle.agent.runner import run_case as run_valuation
 from finagle.agent.schema import case_tool_schema
 from finagle.agent.sources import build_baseline as merge_baseline
+from finagle.agent.update import update_case as revise_case
 from finagle.agent.validate import validate_case as check_case
 
 _INSTRUCTIONS = (
-    'Value a stock from an article already in the conversation, and from a filing '
-    'when the user attached one. Call describe_inputs, then build_baseline with the '
-    'article and attachment leaves to fill year 0 for the last fiscal year, then '
-    'validate_case, then run_case. Use the value_from_article prompt. Do not invent '
-    'method calls, and do not tune inputs to an article price target.'
+    'Value a stock from an article already in the conversation, and from other '
+    'files when the user attached them. A figure stated in the request comes first. '
+    'Call describe_inputs, then build_baseline with the prompt, article, and '
+    'attachments in that order. It fills the last fiscal year and the default '
+    'assumptions. Then validate_case, then run_case. On a follow-up, call '
+    'update_case with only what changed. Use the value_from_article prompt. Do not '
+    'invent method calls, and do not tune inputs to an article price target.'
 )
 
 
@@ -72,28 +75,33 @@ def build_server():
     @server.tool()
     def build_baseline(
         ticker: str,
+        prompt: Optional[dict] = None,
         article: Optional[dict] = None,
         attachment: Optional[dict] = None,
+        attachments: Optional[list] = None,
         country: str = '',
         period_end: str = '',
         user_agent: str = '',
     ) -> dict:
-        '''Fill year 0 from the article, then an attached filing, then the SEC, then yfinance.
+        '''Fill the case from the prompt, the article, other attachments, the SEC, then yfinance.
 
-        article and attachment map baseline fields (and optionally shares)
-        to leaves you read, each with basis fiscal_year, period_end, and
-        currency. Year 0 is the last completed fiscal year, never trailing
-        twelve months. Canadian companies (a .TO, .V, .CN, or .NE ticker, or
-        country CA) skip the SEC. Returns baseline leaves, shares, a price in
-        the reporting currency, the source of each field, what was skipped,
-        and warnings.
+        prompt, article, and each attachment map fields to leaves you read.
+        Reported baseline leaves need basis fiscal_year, period_end, and
+        currency. attachments is an ordered list of {name, leaves}; the
+        request sets that order. Year 0 is the last completed fiscal year,
+        never trailing twelve months. Canadian companies (a .TO, .V, .CN, or
+        .NE ticker, or country CA) skip the SEC. Also fills me, mc, the cost
+        of equity, terminal growth, ROIC, the last close, year-0 leverage,
+        and a proportional buyback price when those were not stated.
         '''
         agent = (user_agent or '').strip() or os.environ.get('FINAGLE_SEC_USER_AGENT', '').strip()
         try:
             return merge_baseline(
                 ticker,
+                prompt=prompt,
                 article=article,
                 attachment=attachment,
+                attachments=attachments,
                 user_agent=agent or None,
                 country=country or None,
                 period_end=period_end or None,
@@ -102,11 +110,25 @@ def build_server():
             return {'ok': False, 'error': '%s: %s' % (type(exc).__name__, exc)}
 
     @server.tool()
+    def update_case(case: dict, updates: dict) -> dict:
+        '''Change a finished case and rerun it.
+
+        updates is a partial case of leaves, source prompt. Derived
+        assumptions whose inputs changed are recomputed from the numbers
+        already in the case. The article, the attachments, the SEC, and
+        yfinance are not read again.
+        '''
+        try:
+            return revise_case(case, updates)
+        except Exception as exc:
+            return {'ok': False, 'error': '%s: %s' % (type(exc).__name__, exc)}
+
+    @server.tool()
     def validate_case(case: dict) -> dict:
         '''Check a case. Fix every error and missing field before run_case.
 
         Warnings do not stop a run. Each figure must be a leaf with value,
-        source (article, attachment, 10k, yahoo, or assumption), and evidence.
+        source (prompt, article, attachment, 10k, yahoo, or assumption), and evidence.
         '''
         return check_case(case)
 

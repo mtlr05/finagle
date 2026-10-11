@@ -348,6 +348,7 @@ def _blocked(case, validation):
         'log': [],
         'sanity_flags': [],
         'validation': validation,
+        'case': case,
         'steps': [],
         'notebook_code': '',
         'provenance': provenance(case),

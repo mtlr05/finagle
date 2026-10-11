@@ -61,7 +61,7 @@
     "mode": {"value": "buyback_schedule", "source": "article", "evidence": "buybacks of $100 million a year for 2024 through 2026"},
     "schedule": {"value": [0, 100, 100, 100, 0], "source": "article", "evidence": "buybacks of $100 million a year for 2024 through 2026"},
     "price": {"value": 42, "source": "article", "evidence": "trades at $42 per share as of August 1, 2024", "currency": "USD"},
-    "price_path": {"value": "constant", "source": "assumption", "evidence": "Buy back at today's price rather than assume a rerating."}
+    "price_path": {"value": "proportional", "source": "assumption", "evidence": "Buybacks hold the year-1 EV/EBITDA multiple."}
   },
   "article": {
     "title": {"value": "Example Pump Co. (XMPL): A Steady Compounder at 9x EBITDA", "source": "article", "evidence": "Example Pump Co. (XMPL): A Steady Compounder at 9x EBITDA"},

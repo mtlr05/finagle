@@ -681,7 +681,7 @@ class company:
         ebitda_ex_sbc = self.fin['ebitda'].iloc[-1] - self.fin['sbc'].iloc[-1]
         dat = (self.fin['capex'].iloc[-1] + self.fin['dwc'].iloc[-1] - C * ebitda_ex_sbc)/(1 - C)
         if dat < 0:
-            self.log.error('negative depreciation in terminal year, check roic and growth assumptions')
+            self.log.warning('negative depreciation in terminal year, check roic and growth assumptions')
 
         self.fin['da'] = self.__stream(self.fin['da'], dat)
         self.fin['income_pretax'] = self.fin.ebitda - \
