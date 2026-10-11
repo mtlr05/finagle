@@ -357,6 +357,83 @@ class company:
             self.fin[column] = self.fin[column].astype(incoming.dtype)
         self.fin.loc[self.fin.index[indexer], column] = value
 
+    def _as_revenue(self, value):
+        '''Return a supplied revenue, or None when the year was not given.'''
+        if isinstance(value, (bool, np.bool_)):
+            return None
+        if isinstance(value, (int, float, np.integer, np.floating)):
+            number = float(value)
+            if np.isnan(number):
+                return None
+            return number
+        return None
+
+    def _revenue_inputs(self, financials, n):
+        '''Revenue from the caller's dict, with missing years left as NaN.
+
+        A bare number is year 0. None and NaN are missing. Zero is an input.
+        '''
+        given = [np.nan] * n
+        if not isinstance(financials, dict) or 'revenue' not in financials:
+            return given
+        raw = financials['revenue']
+        if isinstance(raw, (str, bytes)):
+            return given
+        number = self._as_revenue(raw)
+        if number is not None:
+            if n:
+                given[0] = number
+            return given
+        try:
+            values = list(raw)
+        except TypeError:
+            return given
+        for i, value in enumerate(values):
+            if i >= n:
+                break
+            number = self._as_revenue(value)
+            if number is not None:
+                given[i] = number
+        return given
+
+    def _fill_margin_revenue(self, revenue, ebitda, financials, length):
+        '''Keep supplied revenue and fill the open years linearly in EBITDA.
+
+        Indices after ``length`` are already calculated. Supplied values
+        replace NaN on the earlier years. Years strictly between the last
+        supplied revenue and the first calculated revenue then move in
+        proportion to EBITDA. The caller's dict is not modified.
+        '''
+        n = len(revenue)
+        given = self._revenue_inputs(financials, n)
+        last_uncalculated = min(length, n - 1)
+        for i in range(last_uncalculated + 1):
+            if not np.isnan(given[i]):
+                revenue[i] = given[i]
+
+        first = length + 1
+        if first >= n:
+            return revenue
+
+        supplied = [i for i in range(first) if not np.isnan(given[i])]
+        if not supplied:
+            return revenue
+
+        last = supplied[-1]
+        span = ebitda[first] - ebitda[last]
+        if span == 0:
+            self.log.error(
+                'EBITDA does not change between the last supplied revenue '
+                'and the first calculated revenue; cannot interpolate')
+            return revenue
+
+        r_last = revenue[last]
+        r_first = revenue[first]
+        for i in range(last + 1, first):
+            revenue[i] = r_last + (r_first - r_last) * (
+                ebitda[i] - ebitda[last]) / span
+        return revenue
+
     def forecast_ebitda(self, ebitda_ttm, gf, financials=None,me=None,mc=None,gsnext=None):
         '''creates an ebitda forecast and stores it on the instance
 
@@ -367,7 +444,13 @@ class company:
             mc: ebitda contribution margin of the final year of forecast
             me: ebitda margin of the final year of forecast
             gsnext: sales growth forecast of the year following the last EBITDA growth rates forecast
-            
+
+        When me, mc, and gsnext are set, revenue after the explicit growth
+        rates follows the margin path. Revenue supplied in financials is kept
+        on the earlier years, including zero. Open years between the last
+        supplied revenue and the first calculated revenue are linear in
+        EBITDA. Otherwise revenue is filled with 0. The caller's dict is not
+        modified.
 
         Return:
             ebitda:
@@ -376,6 +459,7 @@ class company:
         g = self.__stream(gf, self.gt)            
         ebitda = [ebitda_ttm]
         revenue = [np.nan]
+        margin_length = None
         
         if mc and me and gsnext is not None:
 
@@ -384,6 +468,7 @@ class company:
             elif isinstance(gf, float):
                 length = 1
                 gf = [gf] 
+            margin_length = length
 
             gfs = [0 for x in range(length)]
             gfs.append(gsnext)
@@ -391,7 +476,7 @@ class company:
 
             for i in range(self.year):
                 if i < length: 
-                    revenue.append(None)
+                    revenue.append(np.nan)
                     ebitda.append(ebitda[i]*(1+g[i]))
                 else:
                     #print(me)
@@ -404,6 +489,10 @@ class company:
             for i in range(self.year):
                 revenue.append(0)
                 ebitda.append(ebitda[i]*(1+g[i]))
+
+        if margin_length is not None and financials is not None:
+            revenue = self._fill_margin_revenue(
+                revenue, ebitda, financials, margin_length)
 
         if financials is not None:
             # keep the caller's dict unchanged; load_financials overlays these

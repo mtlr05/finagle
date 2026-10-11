@@ -152,6 +152,42 @@ def test_forecast_ebitda():
     os.remove('FRG.log')
     pd.testing.assert_frame_equal(answer, result)
 
+def test_forecast_ebitda_keeps_supplied_revenue_and_interpolates_on_ebitda():
+    year = 8
+    me = 0.25
+    mc = 0.40
+    gsnext = 0.10
+    gf = [0.10, 0.10, 0.05, 0.05]
+    length = len(gf)
+    financials = {
+        'revenue': [400, 450],
+        'ebitda': [100],
+    }
+    snapshot = copy.deepcopy(financials)
+    company = cmp.company(
+        ticker='REV', rd=0.05, re=0.1, t=0.21, shares=10,
+        gt=0.02, roict=0.15, year=year, dividend=[0])
+    ebitda = company.forecast_ebitda(
+        100, gf, financials, me=me, mc=mc, gsnext=gsnext)
+    assert financials == snapshot
+
+    revenue = company._forecasts['revenue']
+    assert len(revenue) == year + 1
+    assert revenue[0] == 400
+    assert revenue[1] == 450
+    assert all(value is not None for value in revenue)
+
+    # gs[length] is gsnext: it is the sales-growth knot at the end of gf.
+    first = length + 1
+    assert revenue[first] == pytest.approx(ebitda[length] / me * (1 + gsnext))
+
+    span = ebitda[first] - ebitda[1]
+    for i in range(2, first):
+        expected = 450 + (revenue[first] - 450) * (ebitda[i] - ebitda[1]) / span
+        assert revenue[i] == pytest.approx(expected)
+
+    os.remove('REV.log')
+
 def test_fcf_to_acquire():
     #Sample 5
     #FRG

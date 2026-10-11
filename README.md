@@ -285,7 +285,7 @@ Use `--transport streamable-http` for a remote client. Hosting the server at a p
 
 #### `forecast_ebitda(ebitda_ttm, gf, financials=None, me=None, mc=None, gsnext=None)`
 
-Build a multi-year EBITDA forecast (and optionally revenue). Growth rates `gf` (float or list) are interpolated to terminal growth `gt`. If `me`, `mc`, and `gsnext` are all set, later years use a margin / sales-growth path; otherwise EBITDA compounds by growth and `revenue` is filled with `0`. When `financials` is passed, the series are stored on the instance for `load_financials`. The caller's dict is not modified. `financials=None` (used internally for acquisition EBITDA) only returns the list.
+Build a multi-year EBITDA forecast (and optionally revenue). Growth rates `gf` (float or list) are interpolated to terminal growth `gt`. If `me`, `mc`, and `gsnext` are all set, later years use a margin / sales-growth path. Revenue supplied in `financials` is kept on the earlier years, and the open years between the last supplied revenue and the first calculated revenue are linear in EBITDA. Otherwise EBITDA compounds by growth and `revenue` is filled with `0`. When `financials` is passed, the series are stored on the instance for `load_financials`. The caller's dict is not modified. `financials=None` (used internally for acquisition EBITDA) only returns the list.
 
 #### `forecast_capex(capex_f, financials)`
 
