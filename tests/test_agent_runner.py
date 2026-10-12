@@ -518,6 +518,68 @@ def test_sales_growth_seeds_the_revenue_prefix(tmp_path, monkeypatch):
     assert forecast[1] == pytest.approx(year1)
 
 
+def _capex_case(revenue=None, margin=False, explicit_ebitda=False, sales_growth=None):
+    year = 2
+    baseline = _baseline('2021-12-31', 10, 1, 1, 1, 1, 0, 5, 2, 0, 0)
+    if revenue is not None:
+        baseline['revenue'] = leaf(revenue)
+    forecast = {
+        'ebitda_basis': leaf('organic'),
+        'acquisition_disclosure': {'status': leaf('none')},
+        'dwc': {'mode': leaf('zero')},
+    }
+    if explicit_ebitda:
+        forecast['ebitda'] = leaf([10, 11, 12])
+    else:
+        forecast['ebitda_growth'] = leaf([0.10])
+    if sales_growth is not None:
+        forecast['sales_growth'] = leaf(sales_growth)
+    if margin:
+        forecast['margin_path'] = {
+            'me': leaf(0.20),
+            'mc': leaf(0.30),
+            'gsnext': leaf(0.05),
+        }
+    return {
+        'path': 'ebitda',
+        'ticker': 'CAPEX',
+        'year': year,
+        'market': {'shares': leaf(10)},
+        'rates': _rates(0.05, 0.10, 0.21, 0.02, 0.15),
+        'baseline': baseline,
+        'forecast': forecast,
+        'debt': {'mode': leaf('hold')},
+        'distribution': {'mode': leaf('none')},
+    }
+
+
+def test_compiler_uses_capex_method_1_when_revenue_is_forecast():
+    compiled = compile_case(_capex_case(revenue=100, margin=True))
+    methods = [step['method'] for step in compiled['steps']]
+    assert methods[:3] == ['forecast_ebitda', 'forecast_sbc', 'forecast_capex']
+    capex = next(step for step in compiled['steps'] if step['method'] == 'forecast_capex')
+    assert capex['args']['method'] == 1
+
+    full_revenue = _capex_case(revenue=100, explicit_ebitda=True, sales_growth=[0.1, 0.1])
+    compiled = compile_case(full_revenue)
+    capex = next(step for step in compiled['steps'] if step['method'] == 'forecast_capex')
+    assert capex['args']['method'] == 1
+    assert 'forecast_ebitda' not in [step['method'] for step in compiled['steps']]
+
+
+def test_compiler_uses_capex_method_2_without_a_revenue_forecast():
+    compiled = compile_case(_capex_case())
+    methods = [step['method'] for step in compiled['steps']]
+    assert methods[:3] == ['forecast_ebitda', 'forecast_sbc', 'forecast_capex']
+    capex = next(step for step in compiled['steps'] if step['method'] == 'forecast_capex')
+    assert capex['args']['method'] == 2
+
+    short_revenue = _capex_case(revenue=100, explicit_ebitda=True)
+    compiled = compile_case(short_revenue)
+    capex = next(step for step in compiled['steps'] if step['method'] == 'forecast_capex')
+    assert capex['args']['method'] == 2
+
+
 def test_sanity_flags_follow_the_cash_rules():
     assert sanity_flags(0.1, 0.02, [1, -0.1], [0, -5, 1], 0.08) == ['negative cash']
     assert sanity_flags(0.1, 0.02, [1], [0, -5, -1], 0.08) == ['negative FCFE after year 1']

@@ -96,7 +96,7 @@ See [Example](#example) for a full ATKR case with acquisitions. For a new compan
 Methods should generally be run in this order:
 
 1. `company(...)` — optionally pass `financials` to load immediately
-2. `forecast_ebitda` / `forecast_capex` / `forecast_sbc` — store series on the instance **before** load when forecasts are incomplete. The caller's dict is left unchanged; `load_financials` overlays those stored series.
+2. `forecast_ebitda` / `forecast_sbc` / `forecast_capex` — store series on the instance **before** load when forecasts are incomplete. Call `forecast_sbc` before `forecast_capex` when capex method 1 should use a terminal SBC rate. The caller's dict is left unchanged; `load_financials` overlays those stored series.
 3. `load_financials` — if not loaded in `__init__`
 4. `fcf_from_ebitda` **or** `fcf_from_earnings` (or pass `fcfe` / `fcff` / `fcf` into the constructor for a direct DCF)
 5. Optional capital actions (many re-call `fcf_from_ebitda`): `fcf_to_acquire`, `fcf_to_debt`, `noa_to_dispose`, then `fcf_to_allocate` / `fcf_to_buyback` / `fcf_to_bs`
@@ -301,9 +301,13 @@ Use `--transport streamable-http` for a remote client. Hosting the server at a p
 
 Build a multi-year EBITDA forecast (and optionally revenue). Growth rates `gf` (float or list) are interpolated to terminal growth `gt`. If `me`, `mc`, and `gsnext` are all set, later years use a margin / sales-growth path. Revenue supplied in `financials` is kept on the earlier years, and the open years between the last supplied revenue and the first calculated revenue are linear in EBITDA. Otherwise EBITDA compounds by growth and `revenue` is filled with `0`. When `financials` is passed, the series are stored on the instance for `load_financials`. The caller's dict is not modified. `financials=None` (used internally for acquisition EBITDA) only returns the list.
 
-#### `forecast_capex(capex_f, financials)`
+#### `forecast_capex(capex_f, financials, method=None)`
 
-Extend a partial capex forecast by holding the last known capex/EBITDA ratio for remaining years. EBITDA comes from a stored `forecast_ebitda` result when that exists, otherwise from `financials['ebitda']`. The completed capex series is stored on the instance.
+Extend a partial capex forecast. `method=None` uses method 1 when revenue is non-zero at the last supplied depreciation year and at the terminal year, and method 2 otherwise.
+
+Method 1 sets terminal depreciation to `DA[k] / revenue[k] * revenue[year]`, solves terminal capex from the same ROIC identity that otherwise solves terminal depreciation, and bridges the open years with revenue. Call `forecast_sbc` first when a terminal SBC rate is set, because the identity uses that SBC. Method 1 logs an error and does not write capex when that revenue is missing.
+
+Method 2 holds the last capex/EBITDA ratio. A list that already covers every year is left as given. EBITDA comes from a stored `forecast_ebitda` result when that exists, otherwise from `financials['ebitda']`. The completed series is stored on the instance. Negative terminal capex is a warning; the forecast is still returned.
 
 #### `forecast_sbc(sbc_f, financials, sbc_rate_t=None)`
 
@@ -476,7 +480,7 @@ CI (`.github/workflows/python-app.yml`) runs on pushes and pull requests to `mai
 
 - Equity issuance / capital raises are not modelled; avoid negative cash, and treat negative FCFE after year 1 with caution (see cash section above).
 - An EBITDA case with missing columns or NaNs in the forecast series raises `ValueError` at load. Direct FCFE and earnings-only cases are not checked against the EBITDA column list.
-- Terminal depreciation can log an error if capex / ROIC / growth imply negative terminal DA.
+- Terminal depreciation can log a warning if capex / ROIC / growth imply negative terminal DA. Method 1 can log a warning for negative terminal capex. The valuation still completes.
 - `display_fin()` loads the template with a Windows-style path relative to the package and expects the repo layout (template at project root).
 - Acquisitions that drive cash below zero log an error; lower EBITDA or raise leverage as needed.
 

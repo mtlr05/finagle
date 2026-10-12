@@ -33,7 +33,7 @@ _CTOR_ORDER = (
 
 _ARG_ORDER = {
     'forecast_ebitda': ('ebitda_ttm', 'gf', 'me', 'mc', 'gsnext'),
-    'forecast_capex': ('capex_f',),
+    'forecast_capex': ('capex_f', 'method'),
     'forecast_sbc': ('sbc_f', 'sbc_rate_t'),
     'fcf_from_earnings': ('payout', 'gf', 'ROE'),
     'fcf_to_debt': ('leverage', 'year_d'),

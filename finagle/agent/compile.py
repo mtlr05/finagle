@@ -53,6 +53,34 @@ def _is_number(value):
     return isinstance(value, (int, float)) and not isinstance(value, bool)
 
 
+def _capex_method(baseline, forecast, year, revenue, forecast_ebitda):
+    '''1 when terminal capex can follow revenue, otherwise 2.
+
+    Method 1 needs the revenue path ``forecast_ebitda`` will store, or a
+    revenue series that already covers every year. A growth-only EBITDA
+    forecast replaces revenue with zeros, so that case stays on method 2.
+    '''
+    margin = forecast.get('margin_path') if isinstance(forecast.get('margin_path'), dict) else {}
+    revenue0 = baseline.get('revenue')
+    if (
+        forecast_ebitda
+        and margin.get('me') not in (None, 0)
+        and margin.get('mc') not in (None, 0)
+        and margin.get('gsnext') is not None
+        and _is_number(revenue0)
+        and float(revenue0) != 0
+    ):
+        return 1
+    if (
+        not forecast_ebitda
+        and isinstance(revenue, list)
+        and len(revenue) == year + 1
+        and all(_is_number(item) and float(item) != 0 for item in revenue)
+    ):
+        return 1
+    return 2
+
+
 def _revenue_prefix(baseline, forecast):
     '''Year-0 revenue, then each stated sales-growth rate compounded forward.
 
@@ -142,12 +170,6 @@ def _compile_ebitda(data):
             'args': args,
             'pass_financials': True,
         })
-    if forecast_capex:
-        steps.append({
-            'method': 'forecast_capex',
-            'args': {'capex_f': list(capex_series)},
-            'pass_financials': True,
-        })
     if forecast_sbc:
         args = {'sbc_f': list(sbc_series)}
         if sbc_rate is not None:
@@ -155,6 +177,16 @@ def _compile_ebitda(data):
         steps.append({
             'method': 'forecast_sbc',
             'args': args,
+            'pass_financials': True,
+        })
+    if forecast_capex:
+        steps.append({
+            'method': 'forecast_capex',
+            'args': {
+                'capex_f': list(capex_series),
+                'method': _capex_method(
+                    baseline, forecast, year, financials['revenue'], forecast_ebitda),
+            },
             'pass_financials': True,
         })
 

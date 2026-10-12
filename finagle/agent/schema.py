@@ -131,7 +131,7 @@ CASE_JSON_SCHEMA = {
                     'Terminal growth rate, decimal. Must be below re, and no higher than '
                     'the 10-year yield when rates.risk_free is set.'
                 ),
-                'roict': _leaf_prop('Terminal ROIC, decimal. Used to set terminal depreciation.'),
+                'roict': _leaf_prop('Terminal ROIC, decimal. Sets terminal depreciation, and terminal capex when revenue is forecast.'),
                 'risk_free': _leaf_prop(
                     '10-year government yield for the reporting currency, decimal. '
                     'Terminal growth cannot exceed it.'
@@ -164,7 +164,7 @@ CASE_JSON_SCHEMA = {
                     'Used to set the contribution margin when no source states one.'
                 ),
                 'capex': _leaf_prop('Year-0 capital expenditure, millions. Positive is a cash outflow.'),
-                'da': _leaf_prop('Year-0 depreciation, or a partial list. Later years are calculated.'),
+                'da': _leaf_prop('Year-0 depreciation, or a partial list. Later years move with revenue when revenue is forecast, and with EBITDA otherwise.'),
                 'tax': _leaf_prop('Year-0 cash tax, millions.'),
                 'interest': _leaf_prop('Year-0 interest expense, millions.'),
                 'sbc': _leaf_prop('Year-0 stock-based compensation, millions. Use 0 only as an explicit assumption.'),
@@ -238,7 +238,9 @@ CASE_JSON_SCHEMA = {
                     },
                 },
                 'capex': _leaf_prop(
-                    'Capex from year 0. A short list is extended at the last capex-to-EBITDA ratio.'
+                    'Capex from year 0. When revenue is forecast, a short list solves terminal capex '
+                    'from the depreciation-to-revenue ratio and bridges open years with revenue. '
+                    'Otherwise a short list holds the last capex-to-EBITDA ratio.'
                 ),
                 'sbc': _leaf_prop('SBC from year 0. A short list is extended toward sbc_rate_terminal.'),
                 'sbc_rate_terminal': _leaf_prop(

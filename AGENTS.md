@@ -43,7 +43,7 @@ When no source states them, `build_baseline` fills:
 - With no debt policy, the target Debt/EBITDA is the year-0 ratio, starting in year 1.
 - A buyback uses a proportional price path.
 
-When no source states a capex or stock-based-compensation path, leave `forecast.capex` and `forecast.sbc` unset. Do not repeat the year-0 amount across the horizon. `run_case` then calls `forecast_capex` and `forecast_sbc`, which extend those series at the last ratio to EBITDA. A stated path is still a short or full list, and a full list is kept.
+When no source states a capex or stock-based-compensation path, leave `forecast.capex` and `forecast.sbc` unset. Do not repeat the year-0 amount across the horizon. `run_case` then calls `forecast_sbc` and `forecast_capex`. When revenue is forecast, capex method 1 keeps the last supplied depreciation-to-revenue ratio, solves terminal capex from the ROIC identity, and bridges the open years with revenue. Otherwise capex holds the last capex-to-EBITDA ratio. SBC holds the last SBC-to-EBITDA ratio unless a terminal rate is set. A stated path is still a short or full list, and a full list is kept.
 
 Cost of debt, the tax rate, working capital, net operating losses, non-operating assets, and the distribution mode are still for you to fill.
 
@@ -53,7 +53,7 @@ Use `update_case` with the case `run_case` returned and only the changed leaves.
 
 ## Negative depreciation
 
-Terminal depreciation can come out negative. The valuation still completes. The log carries a warning. Report the warning and still present the value. Other log errors still mean the run failed.
+Terminal depreciation or terminal capex can come out negative. The valuation still completes. The log carries a warning. Report the warning and still present the value. Other log errors still mean the run failed.
 
 [`examples/article_case.json`](examples/article_case.json) is a complete case built from [`examples/sample_article.md`](examples/sample_article.md), a fictional article. Use it as the model for the case shape.
 

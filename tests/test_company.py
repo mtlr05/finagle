@@ -330,3 +330,171 @@ def test_forecast_leaves_caller_dict_and_log_and_rejects_missing_column():
     with pytest.raises(ValueError, match='sbc'):
         incomplete.load_financials(missing)
     os.remove('BADCO.log')
+
+
+def _statements(year=4):
+    return {
+        'date': '2021-12-31',
+        'revenue': [200, 220, 240, 260, 280],
+        'ebitda': [100, 110, 120, 130, 140],
+        'capex': [20],
+        'sbc': [5, 5, 5, 5, 5],
+        'dwc': [0, 0, 0, 0, 1],
+        'tax': [1],
+        'da': [10, 12],
+        'debt': [10] * (year + 1),
+        'interest': [1],
+        'cash': 0,
+        'nol': 0,
+        'noa': 0,
+    }
+
+
+def _capex_model(ticker, year=4, gt=0.02, roict=0.20, t=0.25):
+    return cmp.company(
+        ticker=ticker, rd=0.05, re=0.10, t=t, shares=1,
+        gt=gt, roict=roict, year=year, dividend=[0])
+
+
+def _read_log(ticker):
+    with open(ticker + '.log', encoding='utf-8') as handle:
+        return handle.read()
+
+
+def test_method_1_solves_terminal_capex_and_rounds_trip_depreciation():
+    year = 4
+    financials = _statements(year)
+    snapshot = copy.deepcopy(financials)
+    company = _capex_model('M1', year)
+    capex = company.forecast_capex(financials['capex'], financials)
+    assert financials == snapshot
+
+    C = 0.02 / 0.20 * (1 - 0.25)
+    da_t = 12 / 220 * 280
+    capex_t = da_t * (1 - C) - 1 + C * (140 - 5)
+    revenue = financials['revenue']
+    expected = [20]
+    for i in range(1, year + 1):
+        expected.append(20 + (capex_t - 20) * (revenue[i] - revenue[0]) / (revenue[year] - revenue[0]))
+    assert capex == pytest.approx(expected)
+    assert capex[-1] == pytest.approx(capex_t)
+
+    company.load_financials(financials.copy())
+    company.fcf_from_ebitda()
+    da = list(company.fin['da'])
+    assert da[0] == pytest.approx(10)
+    assert da[1] == pytest.approx(12)
+    for i in range(1, year + 1):
+        assert da[i] == pytest.approx(12 / 220 * revenue[i])
+    os.remove('M1.log')
+
+
+def test_method_2_holds_the_capex_to_ebitda_ratio_when_asked():
+    year = 4
+    financials = _statements(year)
+    financials['capex'] = [20, 22]
+    company = _capex_model('M2', year)
+    capex = company.forecast_capex(financials['capex'], financials, method=2)
+    ebitda = financials['ebitda']
+    assert capex[0:2] == [20, 22]
+    for i in range(2, year + 1):
+        assert capex[i] == pytest.approx(22 / ebitda[1] * ebitda[i])
+    os.remove('M2.log')
+
+
+def test_capex_method_defaults_from_revenue():
+    year = 4
+    with_revenue = _statements(year)
+    company = _capex_model('DEF1', year)
+    default = company.forecast_capex(with_revenue['capex'], with_revenue)
+    explicit = _capex_model('DEF1B', year).forecast_capex(
+        with_revenue['capex'], with_revenue, method=1)
+    assert default == pytest.approx(explicit)
+
+    bare = _statements(year)
+    bare['revenue'] = [0]
+    bare['ebitda'] = [100, 110, 121, 133.1, 146.41]
+    bare['capex'] = [40, 46]
+    company = _capex_model('DEF2', year)
+    company.forecast_ebitda(100, [0.1], bare)
+    capex = company.forecast_capex(bare['capex'], bare)
+    ebitda = company._forecasts['ebitda']
+    assert capex[0:2] == [40, 46]
+    for i in range(2, year + 1):
+        assert capex[i] == pytest.approx(46 / ebitda[1] * ebitda[i])
+    os.remove('DEF1.log')
+    os.remove('DEF1B.log')
+    os.remove('DEF2.log')
+
+
+def test_method_1_without_revenue_does_not_store_capex():
+    year = 4
+    financials = _statements(year)
+    financials['revenue'] = [0]
+    company = _capex_model('NOREV', year)
+    company.forecast_ebitda(100, [0.1], financials)
+    assert company.forecast_capex(financials['capex'], financials, method=1) is None
+    assert 'capex' not in company._forecasts
+    assert 'method 1 needs revenue' in _read_log('NOREV')
+    os.remove('NOREV.log')
+
+
+def test_flat_ebitda_depreciation_falls_back_to_a_time_line():
+    year = 2
+    financials = {
+        'date': '2021-12-31',
+        'revenue': [0],
+        'ebitda': [100],
+        'capex': [10, 10, 10],
+        'dwc': [0, 0, 0],
+        'sbc': [0, 0, 0],
+        'tax': [0],
+        'da': [20],
+        'debt': [0, 0, 0],
+        'interest': [0],
+        'cash': 0,
+        'nol': 0,
+        'noa': 0,
+    }
+    company = _capex_model('FLAT', year, gt=0, roict=0.15, t=0.21)
+    company.forecast_ebitda(100, [0], financials)
+    company.load_financials(financials.copy())
+    company.fcf_from_ebitda()
+    da = list(company.fin['da'])
+    assert da[0] == pytest.approx(20)
+    assert da[1] == pytest.approx((da[0] + da[2]) / 2)
+    assert 'EBITDA does not change between the last supplied depreciation' in _read_log('FLAT')
+    os.remove('FLAT.log')
+
+
+def test_negative_terminal_capex_is_a_warning():
+    year = 2
+    financials = _statements(year)
+    financials['revenue'] = [100, 110, 120]
+    financials['ebitda'] = [50, 55, 60]
+    financials['sbc'] = [0, 0, 0]
+    financials['da'] = [1]
+    financials['dwc'] = [0, 0, 80]
+    financials['capex'] = [5]
+    company = _capex_model('NEGC', year)
+    capex = company.forecast_capex(financials['capex'], financials, method=1)
+    assert capex[-1] < 0
+    assert 'negative capex in terminal year' in _read_log('NEGC')
+    os.remove('NEGC.log')
+
+
+def test_terminal_sbc_uses_the_stored_forecast():
+    year = 4
+    financials = _statements(year)
+    financials['sbc'] = [5]
+    first = _capex_model('SBC1', year)
+    projected = first.forecast_capex(financials['capex'], financials, method=1)
+    assert 'forecast_sbc has not run' in _read_log('SBC1')
+
+    second = _capex_model('SBC2', year)
+    second.forecast_sbc(financials['sbc'], financials, sbc_rate_t=0.2)
+    stated = second.forecast_capex(financials['capex'], financials, method=1)
+    assert projected[-1] != pytest.approx(stated[-1])
+    assert 'forecast_sbc has not run' not in _read_log('SBC2')
+    os.remove('SBC1.log')
+    os.remove('SBC2.log')

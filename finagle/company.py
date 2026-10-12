@@ -420,19 +420,108 @@ class company:
             return revenue
 
         last = supplied[-1]
-        span = ebitda[first] - ebitda[last]
-        if span == 0:
+        filled = self._proportional_bridge(
+            revenue[last], revenue[first], ebitda, last, first)
+        if filled is None:
             self.log.error(
                 'EBITDA does not change between the last supplied revenue '
                 'and the first calculated revenue; cannot interpolate')
             return revenue
 
-        r_last = revenue[last]
-        r_first = revenue[first]
-        for i in range(last + 1, first):
-            revenue[i] = r_last + (r_first - r_last) * (
-                ebitda[i] - ebitda[last]) / span
+        for index, value in zip(range(last + 1, first), filled):
+            revenue[index] = value
         return revenue
+
+    def _proportional_bridge(self, start_value, end_value, driver, start, end):
+        '''Open values between ``start`` and ``end``, moving with ``driver``.
+
+        The endpoints are not included. Returns None when ``driver`` does not
+        change, so the caller can log and choose a fallback.
+        '''
+        span = driver[end] - driver[start]
+        if span == 0:
+            return None
+        return [
+            start_value + (end_value - start_value) * (
+                driver[i] - driver[start]) / span
+            for i in range(start + 1, end)
+        ]
+
+    def _prefixed_series(self, raw):
+        '''Return ``(values, length)`` using the forecast prefix rule.
+
+        ``length`` counts non-NaN entries. A list keeps every item, including
+        a trailing gap. A bare number is one year.
+        '''
+        if isinstance(raw, list):
+            length = int(np.count_nonzero(~np.isnan(np.asarray(raw, dtype=float))))
+            return list(raw), length
+        if isinstance(raw, bool):
+            return [], 0
+        if isinstance(raw, (int, np.integer)):
+            return [raw], 1
+        if isinstance(raw, (float, np.floating)):
+            if np.isnan(raw):
+                return [np.nan], 0
+            return [raw], 1
+        if raw is None:
+            return [], 0
+        try:
+            if hasattr(raw, 'iloc'):
+                length = int(np.count_nonzero(~np.isnan(raw)))
+                return list(raw.iloc[0:length]), length
+            values = list(raw)
+        except TypeError:
+            return [], 0
+        length = int(np.count_nonzero(~np.isnan(np.asarray(values, dtype=float))))
+        return values, length
+
+    def _lookup_series(self, financials, key):
+        '''A stored forecast wins over the caller's dict.'''
+        if key in self._forecasts:
+            return list(self._forecasts[key])
+        if not isinstance(financials, dict) or key not in financials:
+            return None
+        values, _length = self._prefixed_series(financials[key])
+        if isinstance(financials[key], list):
+            return list(financials[key])
+        return values
+
+    def _finite_nonzero(self, series, index):
+        if series is None or index < 0 or index >= len(series):
+            return False
+        try:
+            number = float(series[index])
+        except (TypeError, ValueError):
+            return False
+        return bool(np.isfinite(number) and number != 0.0)
+
+    def _depreciation_anchor(self, financials):
+        '''Last supplied depreciation index, or None when it is not a prefix.'''
+        if not isinstance(financials, dict):
+            return None, None
+        values, length = self._prefixed_series(financials.get('da'))
+        if length <= 0 or length - 1 >= len(values):
+            return None, None
+        anchor = values[length - 1]
+        try:
+            anchor = float(anchor)
+        except (TypeError, ValueError):
+            return None, None
+        if not np.isfinite(anchor):
+            return None, None
+        return length - 1, anchor
+
+    def _revenue_anchor_usable(self, financials):
+        '''True when revenue can scale depreciation to the terminal year.'''
+        index, _anchor = self._depreciation_anchor(financials)
+        if index is None:
+            return False
+        revenue = self._lookup_series(financials, 'revenue')
+        return (
+            self._finite_nonzero(revenue, index)
+            and self._finite_nonzero(revenue, self.year)
+        )
 
     def forecast_ebitda(self, ebitda_ttm, gf, financials=None,me=None,mc=None,gsnext=None):
         '''creates an ebitda forecast and stores it on the instance
@@ -501,24 +590,55 @@ class company:
 
         return ebitda
 
-    def forecast_capex(self, capex_f, financials):
+    def forecast_capex(self, capex_f, financials, method=None):
         '''creates a capital expenditures (capex) forecast and stores it on
         the instance.
 
-        This is done by proving a forecast in the form of a list. The length of
-        the forecast can be for all years or just a subset. The balance of the
-        years not provided are then forecast as a constant fraction of ebitda,
-        using the last value in the capex_f list. The forecast is then used to
-        stored for load_financials and returned as a list. The caller's
-        dictionary is not modified.
+        A list that already covers every year is left as given. Otherwise
+        ``method`` 1 is the default when revenue is non-zero at the last
+        supplied depreciation year and at the terminal year. It sets terminal
+        depreciation from that revenue ratio, solves terminal capex from the
+        ROIC identity, and bridges the open years with revenue. ``method`` 2
+        holds the last capex-to-EBITDA ratio. The caller's dictionary is not
+        modified.
 
         Args:
             capex_f:
             financials:
+            method: 1, 2, or None for the default above
 
         Returns:
             capex:
         '''
+        _values, length = self._prefixed_series(capex_f)
+        if length <= 0:
+            self.log.error('capex forecast is empty')
+            return None
+        if length >= self.year + 1:
+            return self._forecast_capex_at_ebitda_ratio(capex_f, financials)
+
+        if method is None:
+            method = 1 if self._revenue_anchor_usable(financials) else 2
+        else:
+            try:
+                method = int(method)
+            except (TypeError, ValueError):
+                self.log.error('forecast_capex method must be 1 or 2')
+                return None
+
+        if method == 1:
+            if not self._revenue_anchor_usable(financials):
+                self.log.error(
+                    'forecast_capex method 1 needs revenue that is non-zero '
+                    'at the last supplied depreciation year and at the terminal year')
+                return None
+            return self._forecast_capex_from_revenue(capex_f, financials)
+        if method == 2:
+            return self._forecast_capex_at_ebitda_ratio(capex_f, financials)
+        self.log.error('forecast_capex method must be 1 or 2')
+        return None
+
+    def _forecast_capex_at_ebitda_ratio(self, capex_f, financials):
         if isinstance(capex_f, list):
             length = np.count_nonzero(~np.isnan(capex_f))
             capex = list(capex_f)
@@ -541,6 +661,96 @@ class company:
             self._forecasts['capex'] = list(capex)
 
         return capex
+
+    def _forecast_capex_from_revenue(self, capex_f, financials):
+        values, length = self._prefixed_series(capex_f)
+        capex = list(values[:length])
+        ebitda = list(self._ebitda_series(financials))
+        revenue = self._lookup_series(financials, 'revenue')
+        if len(ebitda) <= self.year or revenue is None or len(revenue) <= self.year:
+            self.log.error(
+                'forecast_capex method 1 needs EBITDA and revenue through the terminal year')
+            return None
+        if not self.roict:
+            self.log.error('roict is zero; cannot calculate terminal capex')
+            return None
+
+        index, anchor = self._depreciation_anchor(financials)
+        da_t = anchor / float(revenue[index]) * float(revenue[self.year])
+        sbc_t = self._terminal_sbc(financials, ebitda)
+        dwc = self._lookup_series(financials, 'dwc')
+        if sbc_t is None or dwc is None or len(dwc) <= self.year:
+            self.log.error(
+                'forecast_capex method 1 needs terminal stock-based compensation and working capital')
+            return None
+
+        C = self.gt / self.roict * (1 - self.t)
+        if C >= 1:
+            self.log.warning(
+                'terminal reinvestment ratio is at least 1, so the depreciation plug is unstable; check roict and growth')
+        ebitda_ex_sbc = float(ebitda[self.year]) - sbc_t
+        capex_t = da_t * (1 - C) - float(dwc[self.year]) + C * ebitda_ex_sbc
+        if capex_t < 0:
+            self.log.warning(
+                'negative capex in terminal year, check depreciation, revenue, and growth assumptions')
+
+        k = length - 1
+        span = float(revenue[self.year]) - float(revenue[k])
+        if not np.isfinite(span) or span == 0:
+            self.log.error(
+                'revenue does not change between the last supplied capex '
+                'and the terminal year; cannot interpolate')
+            step = self.year - k
+            for i in range(k + 1, self.year + 1):
+                capex.append(capex[k] + (capex_t - capex[k]) * (i - k) / step)
+        else:
+            filled = self._proportional_bridge(
+                capex[k], capex_t, revenue, k, self.year)
+            capex.extend(filled)
+            capex.append(capex_t)
+
+        if financials is not None:
+            self._forecasts['capex'] = list(capex)
+        return capex
+
+    def _terminal_sbc(self, financials, ebitda):
+        '''Terminal stock-based compensation used by the capex identity.
+
+        A stored ``forecast_sbc`` result wins. A complete series in the dict
+        is used as given. Otherwise the last SBC-to-EBITDA ratio is projected,
+        which will differ from a later ``forecast_sbc`` call that sets a
+        terminal rate.
+        '''
+        if 'sbc' in self._forecasts:
+            stored = list(self._forecasts['sbc'])
+            if len(stored) > self.year:
+                return float(stored[self.year])
+        values, length = self._prefixed_series(
+            financials.get('sbc') if isinstance(financials, dict) else None)
+        if length <= 0:
+            return None
+        if length > self.year and len(values) > self.year:
+            try:
+                number = float(values[self.year])
+            except (TypeError, ValueError):
+                return None
+            if np.isfinite(number):
+                return number
+        if length - 1 >= len(ebitda) or ebitda[length - 1] == 0:
+            return None
+        self.log.warning(
+            'terminal SBC projected at the last SBC-to-EBITDA ratio because forecast_sbc has not run')
+        sbc = [float(values[i]) for i in range(length)]
+        rate = sbc[length - 1] / float(ebitda[length - 1])
+        rates = []
+        for i in range(length):
+            if ebitda[i] == 0:
+                return None
+            rates.append(sbc[i] / float(ebitda[i]))
+        streamed = self.__stream(rates, rate)
+        for i in range(length, self.year + 1):
+            sbc.append(float(streamed[i]) * float(ebitda[i]))
+        return float(sbc[self.year])
 
     def forecast_sbc(self, sbc_f, financials, sbc_rate_t=None):
         '''creates an stock-based compensation (sbc) forecast and stores it on
@@ -683,7 +893,7 @@ class company:
         if dat < 0:
             self.log.warning('negative depreciation in terminal year, check roic and growth assumptions')
 
-        self.fin['da'] = self.__stream(self.fin['da'], dat)
+        self._fill_depreciation(dat)
         self.fin['income_pretax'] = self.fin.ebitda - \
             self.fin.sbc - self.fin.da - self.fin.interest
         self.fin['dDebt'] = self.fin['debt']-self.fin['debt'].shift(1)
@@ -737,6 +947,52 @@ class company:
         self.fin['cash'] = self.fin['cash'].cumsum()
         self.__iset('noa', slice(1, None), self.fin['noa'].iloc[0])
         self.log.info('fcf_from_ebitda() method complete')
+
+    def _fill_depreciation(self, dat):
+        '''Fill open depreciation years up to the terminal plug.
+
+        Supplied years stay as given. Open years move with revenue when that
+        forecast is non-zero at the anchor and the terminal year, and with
+        EBITDA otherwise. A flat driver falls back to a straight time line.
+        '''
+        values = np.asarray(self.fin['da'], dtype=float)
+        length = int(np.count_nonzero(~np.isnan(values)))
+        if length <= 0 or length - 1 >= len(values) or not np.isfinite(values[length - 1]):
+            self.log.error(
+                'depreciation prefix is missing; falling back to a straight time line')
+            self.fin['da'] = self.__stream(self.fin['da'], dat)
+            return
+
+        k = length - 1
+        if k > self.year:
+            self.fin['da'] = self.__stream(self.fin['da'], dat)
+            return
+        if k == self.year:
+            out = [float(values[i]) for i in range(self.year)]
+            out.append(float(dat))
+            self.fin['da'] = out
+            return
+
+        revenue = list(self.fin['revenue']) if 'revenue' in self.fin.columns else None
+        if self._finite_nonzero(revenue, k) and self._finite_nonzero(revenue, self.year):
+            driver = revenue
+            driver_name = 'revenue'
+        else:
+            driver = [float(value) for value in self.fin['ebitda']]
+            driver_name = 'EBITDA'
+        filled = self._proportional_bridge(
+            float(values[k]), float(dat), driver, k, self.year)
+        if filled is None:
+            self.log.error(
+                '%s does not change between the last supplied depreciation '
+                'and the terminal year; cannot interpolate' % driver_name)
+            self.fin['da'] = self.__stream(self.fin['da'], dat)
+            return
+
+        out = [float(values[i]) for i in range(k + 1)]
+        out.extend(filled)
+        out.append(float(dat))
+        self.fin['da'] = out
 
     def fcf_to_debt(self, leverage=3, year_d=1):
         '''Adjust debt levels to desired target.
