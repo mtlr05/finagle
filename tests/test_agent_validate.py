@@ -325,6 +325,10 @@ def test_catalog_and_prompt_tell_the_bot_what_to_supply():
     assert 'acquisition_disclosure' in VALUE_FROM_ARTICLE
     assert 'MnA' in VALUE_FROM_ARTICLE
     assert any('MnA' in item for item in catalog['do_not'])
+    assert 'leave forecast.capex and forecast.sbc unset' in VALUE_FROM_ARTICLE
+    assert 'forecast_capex' in VALUE_FROM_ARTICLE
+    assert 'forecast_sbc' in VALUE_FROM_ARTICLE
+    assert any('forecast_capex' in item and 'forecast_sbc' in item for item in catalog['do_not'])
 
 
 def test_package_import_does_not_pull_in_the_agent():

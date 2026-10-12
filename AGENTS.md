@@ -43,7 +43,9 @@ When no source states them, `build_baseline` fills:
 - With no debt policy, the target Debt/EBITDA is the year-0 ratio, starting in year 1.
 - A buyback uses a proportional price path.
 
-Cost of debt, the tax rate, capex, stock-based compensation, working capital, net operating losses, non-operating assets, and the distribution mode are still for you to fill.
+When no source states a capex or stock-based-compensation path, leave `forecast.capex` and `forecast.sbc` unset. Do not repeat the year-0 amount across the horizon. `run_case` then calls `forecast_capex` and `forecast_sbc`, which extend those series at the last ratio to EBITDA. A stated path is still a short or full list, and a full list is kept.
+
+Cost of debt, the tax rate, working capital, net operating losses, non-operating assets, and the distribution mode are still for you to fill.
 
 ## A follow-up
 
