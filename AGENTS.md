@@ -43,7 +43,7 @@ When no source states them, `build_baseline` fills:
 - With no debt policy, the target Debt/EBITDA is the year-0 ratio, starting in year 1.
 - A buyback uses a proportional price path.
 
-When no source states a capex or stock-based-compensation path, leave `forecast.capex` and `forecast.sbc` unset. Do not repeat the year-0 amount across the horizon. `run_case` then calls `forecast_sbc` and `forecast_capex`. When revenue is forecast, capex method 1 keeps the last supplied depreciation-to-revenue ratio, solves terminal capex from the ROIC identity, and bridges the open years with revenue. Otherwise capex holds the last capex-to-EBITDA ratio. SBC holds the last SBC-to-EBITDA ratio unless a terminal rate is set. A stated path is still a short or full list, and a full list is kept.
+When no source states a capex or stock-based-compensation path, leave `forecast.capex` and `forecast.sbc` unset. Do not repeat the year-0 amount across the horizon. `run_case` then calls `forecast_sbc` and `forecast_capex`. If a case still assumes a full capex or SBC path, or repeats the year-0 amount, `run_case` cuts it back to year 0, warns, and runs `forecast_capex` and `forecast_sbc`. When revenue is forecast, capex method 1 keeps the last supplied depreciation-to-revenue ratio, solves terminal capex from the ROIC identity, and bridges the open years with revenue. Otherwise capex holds the last capex-to-EBITDA ratio. SBC holds the last SBC-to-EBITDA ratio unless a terminal rate is set. A stated path is still a short or full list, and a full list is kept.
 
 Cost of debt, the tax rate, working capital, net operating losses, non-operating assets, and the distribution mode are still for you to fill.
 

@@ -5,11 +5,94 @@ last debt target and the last distribution. The case therefore carries intents,
 and this module is the only place those intents become method calls.
 '''
 
-from finagle.agent.schema import unwrap
+import copy
+import math
+
+from finagle.agent.schema import is_leaf, unwrap
+
+# A path from one of these was stated. An assumption, or a filing figure
+# repeated with no path attached, was not.
+_STATED_SOURCES = ('prompt', 'article', 'attachment')
+_ASSUMED_PATHS = (
+    ('capex', 'forecast_capex'),
+    ('sbc', 'forecast_sbc'),
+)
 
 
 class CompileError(ValueError):
     '''The case cannot be compiled into company method calls.'''
+
+
+def normalize_assumed_paths(case):
+    '''Cut an unstated capex or stock-based-compensation path back to year 0.
+
+    Returns ``(case, warnings)``. ``case`` is a deep copy. A path is cut when
+    its source is ``assumption`` and it already covers every year, or when it
+    repeats the year-0 amount and the source is not ``prompt``, ``article``,
+    or ``attachment``. A path a source stated is kept, including a full list.
+    Running this twice leaves the case as the first run left it.
+    '''
+    if not isinstance(case, dict):
+        return case, []
+    case = copy.deepcopy(case)
+    year = _whole_year(case.get('year'))
+    baseline = case.get('baseline') if isinstance(case.get('baseline'), dict) else {}
+    forecast = case.get('forecast')
+    if not isinstance(forecast, dict):
+        return case, []
+
+    warnings = []
+    for name, method in _ASSUMED_PATHS:
+        node = forecast.get(name)
+        if not is_leaf(node):
+            continue
+        values = node.get('value')
+        if not isinstance(values, list) or len(values) <= 1:
+            continue
+        year0 = _year0_amount(baseline.get(name))
+        if year0 is None:
+            continue
+        source = node.get('source')
+        repeats = all(_same_number(item, year0) for item in values)
+        full = source == 'assumption' and year is not None and len(values) == year + 1
+        if source in _STATED_SOURCES or not (full or repeats):
+            continue
+        evidence = (
+            'forecast.%s was a path no source stated, so it was cut back to '
+            'year 0 and %s extends it.' % (name, method)
+        )
+        forecast[name] = {
+            'value': [year0],
+            'source': 'assumption',
+            'evidence': evidence,
+        }
+        warnings.append(evidence)
+    return case, warnings
+
+
+def _whole_year(value):
+    if isinstance(value, bool) or not isinstance(value, int):
+        return None
+    if value < 1:
+        return None
+    return value
+
+
+def _year0_amount(node):
+    if not is_leaf(node):
+        return None
+    value = node.get('value')
+    if isinstance(value, list):
+        value = value[0] if value else None
+    if _is_number(value):
+        return value
+    return None
+
+
+def _same_number(left, right):
+    if not _is_number(left) or not _is_number(right):
+        return False
+    return math.isclose(float(left), float(right), rel_tol=1e-9, abs_tol=1e-9)
 
 
 def compile_case(case):
@@ -18,9 +101,13 @@ def compile_case(case):
     Steps that need the financials dict set ``pass_financials``. Acquisition
     steps that still need a fraction set ``resolve_frac``; the runner fills
     ``ebitda_frac`` from EBITDA in the deal year just before that deal.
+
+    An assumed capex or stock-based-compensation path is cut back to year 0
+    first, so ``forecast_capex`` and ``forecast_sbc`` still run.
     '''
     if not isinstance(case, dict):
         raise CompileError('case must be an object')
+    case, _warnings = normalize_assumed_paths(case)
     data = unwrap(case)
     path = data.get('path') or 'ebitda'
     if path == 'earnings':

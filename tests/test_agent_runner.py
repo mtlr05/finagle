@@ -4,7 +4,7 @@ import os
 import pandas as pd
 import pytest
 
-from finagle.agent.compile import compile_case
+from finagle.agent.compile import compile_case, normalize_assumed_paths
 from finagle.agent.runner import run_case, sanity_flags
 
 
@@ -13,6 +13,15 @@ def leaf(value):
         'value': value,
         'source': 'assumption',
         'evidence': 'replay of an existing notebook case',
+    }
+
+
+def stated(value):
+    '''A capex or SBC path taken from a notebook, not invented by the agent.'''
+    return {
+        'value': value,
+        'source': 'prompt',
+        'evidence': 'figures from the existing notebook case',
     }
 
 
@@ -61,8 +70,8 @@ def disck_case():
             'ebitda_basis': leaf('organic'),
             'acquisition_disclosure': {'status': leaf('none')},
             'ebitda': leaf(ebitda),
-            'capex': leaf(capex),
-            'sbc': leaf([0] * 11),
+            'capex': stated(capex),
+            'sbc': stated([0] * 11),
             'dwc': {'mode': leaf('zero')},
         },
         'debt': {
@@ -98,8 +107,8 @@ def frg_acquire_case():
                 'deal_spend': leaf([6.52 * 330 * 0.2696]),
             },
             'ebitda_growth': leaf([0.15, 0.1, 0.1, 0.1, 0.1]),
-            'capex': leaf(capex),
-            'sbc': leaf([0] * 11),
+            'capex': stated(capex),
+            'sbc': stated([0] * 11),
             'dwc': {'mode': leaf('zero')},
         },
         'debt': {
@@ -141,8 +150,8 @@ def pl_allocate_case():
             'ebitda_basis': leaf('organic'),
             'acquisition_disclosure': {'status': leaf('none')},
             'ebitda': leaf(ebitda),
-            'capex': leaf(capex),
-            'sbc': leaf([80, 80, 80, 80, 80]),
+            'capex': stated(capex),
+            'sbc': stated([80, 80, 80, 80, 80]),
             'sbc_rate_terminal': leaf(0.17),
             'dwc': {'mode': leaf('zero')},
         },
@@ -233,8 +242,8 @@ def test_acquired_ebitda_becomes_a_fraction_of_that_years_ebitda():
                 'deal_spend': leaf([0, 17.6]),
             },
             'ebitda': leaf([10, 11, 12, 13]),
-            'capex': leaf([1, 1, 1, 1]),
-            'sbc': leaf([0, 0, 0, 0]),
+            'capex': stated([1, 1, 1, 1]),
+            'sbc': stated([0, 0, 0, 0]),
             'dwc': {'mode': leaf('zero')},
         },
         'debt': {'mode': leaf('hold')},
@@ -273,8 +282,8 @@ def test_deal_value_uses_the_multiple_before_the_fraction():
                 'deal_spend': leaf([0, 22]),
             },
             'ebitda': leaf([10, 11, 12, 13]),
-            'capex': leaf([1, 1, 1, 1]),
-            'sbc': leaf([0, 0, 0, 0]),
+            'capex': stated([1, 1, 1, 1]),
+            'sbc': stated([0, 0, 0, 0]),
             'dwc': {'mode': leaf('zero')},
         },
         'debt': {'mode': leaf('hold')},
@@ -375,8 +384,8 @@ def test_acquisition_reporting_shows_mna_and_reconciles_ebitda():
                 'deal_spend': leaf([0, 17.6]),
             },
             'ebitda': leaf([10, 11, 12, 13]),
-            'capex': leaf([1, 1, 1, 1]),
-            'sbc': leaf([0, 0, 0, 0]),
+            'capex': stated([1, 1, 1, 1]),
+            'sbc': stated([0, 0, 0, 0]),
             'dwc': {'mode': leaf('zero')},
         },
         'debt': {'mode': leaf('hold')},
@@ -425,8 +434,8 @@ def test_a_gap_in_ebitda_or_deal_spend_is_flagged():
                 'deal_spend': leaf([0, 100]),
             },
             'ebitda': leaf([10, 11, 12, 13]),
-            'capex': leaf([1, 1, 1, 1]),
-            'sbc': leaf([0, 0, 0, 0]),
+            'capex': stated([1, 1, 1, 1]),
+            'sbc': stated([0, 0, 0, 0]),
             'dwc': {'mode': leaf('zero')},
         },
         'debt': {'mode': leaf('hold')},
@@ -503,6 +512,10 @@ def test_sales_growth_seeds_the_revenue_prefix(tmp_path, monkeypatch):
     assert compiled['financials']['revenue'] == pytest.approx([
         revenue0, year1, year1 * (1 + g2),
     ])
+    methods = [step['method'] for step in compiled['steps']]
+    assert 'forecast_sbc' in methods
+    capex_step = next(step for step in compiled['steps'] if step['method'] == 'forecast_capex')
+    assert capex_step['args']['method'] == 1
 
     result = run_case(case)
     assert result['ok'], {
@@ -510,6 +523,11 @@ def test_sales_growth_seeds_the_revenue_prefix(tmp_path, monkeypatch):
         'log': result.get('log'),
         'validation': result.get('validation'),
     }
+    assert result['case']['forecast']['capex']['value'] == [0.887]
+    assert any(
+        'forecast.capex was a path no source stated' in warning
+        for warning in result['validation']['warnings']
+    )
     assert repr(revenue0) in result['notebook_code']
     namespace = {}
     exec(result['notebook_code'], namespace)
@@ -578,6 +596,48 @@ def test_compiler_uses_capex_method_2_without_a_revenue_forecast():
     compiled = compile_case(short_revenue)
     capex = next(step for step in compiled['steps'] if step['method'] == 'forecast_capex')
     assert capex['args']['method'] == 2
+
+
+def test_a_stated_full_capex_list_is_kept():
+    case = _capex_case()
+    case['forecast']['capex'] = {
+        'value': [1, 2, 3],
+        'source': 'article',
+        'evidence': 'capex of 1, 2 and 3',
+    }
+    case['forecast']['sbc'] = {
+        'value': [0, 0, 0],
+        'source': 'article',
+        'evidence': 'no stock-based compensation',
+    }
+    normalized, warnings = normalize_assumed_paths(case)
+    assert normalized['forecast']['capex']['value'] == [1, 2, 3]
+    assert warnings == []
+    compiled = compile_case(case)
+    assert 'forecast_capex' not in [step['method'] for step in compiled['steps']]
+
+
+def test_a_short_assumed_capex_path_that_changes_is_kept():
+    case = _capex_case()
+    case['year'] = 4
+    case['forecast']['capex'] = leaf([1, 1.5])
+    normalized, warnings = normalize_assumed_paths(case)
+    assert normalized['forecast']['capex']['value'] == [1, 1.5]
+    assert warnings == []
+
+
+def test_normalizing_an_assumed_path_twice_is_the_same():
+    case = _capex_case()
+    case['forecast']['capex'] = leaf([1, 1, 1])
+    case['forecast']['sbc'] = leaf([0, 0])
+    once, warnings = normalize_assumed_paths(case)
+    twice, again = normalize_assumed_paths(once)
+    assert once == twice
+    assert once['forecast']['capex']['value'] == [1]
+    assert once['forecast']['sbc']['value'] == [0]
+    assert again == []
+    assert any('forecast.capex' in warning for warning in warnings)
+    assert any('forecast.sbc' in warning for warning in warnings)
 
 
 def test_sanity_flags_follow_the_cash_rules():

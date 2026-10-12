@@ -33,7 +33,10 @@ def update_case(case, updates, run=True):
     if not run:
         return {'ok': True, 'case': updated, 'validation': validate_case(updated)}
     result = run_case(updated)
-    result['case'] = updated
+    # run_case may cut an assumed capex or SBC path. Keep that case, so the
+    # one returned here is the one that ran.
+    if result.get('case') is None:
+        result['case'] = updated
     return result
 
 

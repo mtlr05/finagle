@@ -9,7 +9,7 @@ import pprint
 import tempfile
 import threading
 
-from finagle.agent.compile import CompileError, compile_case
+from finagle.agent.compile import CompileError, compile_case, normalize_assumed_paths
 from finagle.agent.schema import provenance, unwrap
 from finagle.agent.validate import validate_case
 from finagle.company import company
@@ -52,8 +52,16 @@ def run_case(case):
 
     Validation errors and missing fields skip the model. A log error from
     the model leaves the numbers in place and sets ``ok`` false.
+
+    An assumed full capex or stock-based-compensation path, or one that
+    repeats the year-0 amount, is cut back to year 0 before validation.
+    The returned case is that copy, and the cut is a validation warning.
     '''
+    path_warnings = []
+    if isinstance(case, dict):
+        case, path_warnings = normalize_assumed_paths(case)
     validation = validate_case(case)
+    validation['warnings'].extend(path_warnings)
     if validation['errors'] or validation['missing']:
         return _blocked(case, validation)
     try:
