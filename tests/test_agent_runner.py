@@ -536,6 +536,86 @@ def test_sales_growth_seeds_the_revenue_prefix(tmp_path, monkeypatch):
     assert forecast[1] == pytest.approx(year1)
 
 
+def test_forecast_ebitda_uses_the_handoff_margin(tmp_path, monkeypatch):
+    monkeypatch.chdir(tmp_path)
+    from finagle.agent.defaults import apply_defaults
+
+    revenue0 = 400.0
+    ebitda0 = 100.0
+    sales = [0.10, 0.20]
+    case = {
+        'path': 'ebitda',
+        'ticker': 'ROLL',
+        'year': 4,
+        'market': {'shares': leaf(10)},
+        'rates': _rates(0.05, 0.10, 0.21, 0.02, 0.15),
+        'baseline': _baseline(
+            '2025-12-31', ebitda0, 1, 1, 1, 1, 1,
+            5, 2, 0, 0,
+        ),
+        'forecast': {
+            'ebitda_basis': leaf('organic'),
+            'acquisition_disclosure': {'status': leaf('none')},
+            'sales_growth': leaf(sales),
+            'dwc': {'mode': leaf('zero')},
+        },
+        'debt': {'mode': leaf('hold')},
+        'distribution': {'mode': leaf('none')},
+    }
+    case['baseline']['revenue'] = leaf(revenue0)
+    case['baseline']['gross_margin'] = leaf(0.50)
+    apply_defaults(case, fetch_yield=False)
+    assert case['forecast']['margin_path']['me']['value'] == pytest.approx(ebitda0 / revenue0)
+
+    compiled = compile_case(case)
+    step = next(item for item in compiled['steps'] if item['method'] == 'forecast_ebitda')
+    revenue_l = revenue0 * (1 + sales[0]) * (1 + sales[1])
+    ebitda = ebitda0
+    for rate in case['forecast']['ebitda_growth']['value']:
+        ebitda *= 1 + rate
+    assert step['args']['me'] == pytest.approx(ebitda / revenue_l)
+    assert step['args']['me'] != pytest.approx(ebitda0 / revenue0)
+
+    result = run_case(case)
+    assert result['ok'], result.get('error')
+    assert result['case']['forecast']['margin_path']['me']['value'] == pytest.approx(0.25)
+    namespace = {}
+    exec(result['notebook_code'], namespace)
+    forecast = namespace['model']._forecasts['revenue']
+    gsnext = case['forecast']['margin_path']['gsnext']['value']
+    assert forecast[3] == pytest.approx(revenue_l * (1 + gsnext))
+
+    short = {
+        'path': 'ebitda',
+        'ticker': 'SHORT',
+        'year': 4,
+        'market': {'shares': leaf(10)},
+        'rates': _rates(0.05, 0.10, 0.21, 0.02, 0.15),
+        'baseline': _baseline(
+            '2025-12-31', ebitda0, 1, 1, 1, 1, 1,
+            5, 2, 0, 0,
+        ),
+        'forecast': {
+            'ebitda_basis': leaf('organic'),
+            'acquisition_disclosure': {'status': leaf('none')},
+            'ebitda_growth': leaf([0.10, 0.10]),
+            'sales_growth': leaf([0.05]),
+            'margin_path': {
+                'me': leaf(0.25),
+                'mc': leaf(0.40),
+                'gsnext': leaf(0.05),
+            },
+            'dwc': {'mode': leaf('zero')},
+        },
+        'debt': {'mode': leaf('hold')},
+        'distribution': {'mode': leaf('none')},
+    }
+    short['baseline']['revenue'] = leaf(revenue0)
+    compiled = compile_case(short)
+    step = next(item for item in compiled['steps'] if item['method'] == 'forecast_ebitda')
+    assert step['args']['me'] == pytest.approx(0.25)
+
+
 def _capex_case(revenue=None, margin=False, explicit_ebitda=False, sales_growth=None):
     year = 2
     baseline = _baseline('2021-12-31', 10, 1, 1, 1, 1, 0, 5, 2, 0, 0)

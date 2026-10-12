@@ -191,6 +191,46 @@ def _revenue_prefix(baseline, forecast):
     return series
 
 
+def _explicit_rates(growth):
+    '''Numeric EBITDA growth rates, in order, stopping at the first gap.'''
+    if isinstance(growth, list):
+        rates = []
+        for rate in growth:
+            if not _is_number(rate):
+                break
+            rates.append(float(rate))
+        return rates
+    if _is_number(growth):
+        return [float(growth)]
+    return []
+
+
+def _handoff_margin(baseline, forecast, growth):
+    '''EBITDA divided by revenue at the end of the explicit growth list.
+
+    Returns None when the sales prefix does not reach that year, so the
+    caller keeps the case margin (the year-0 assumption, or a stated margin).
+    '''
+    rates = _explicit_rates(growth)
+    if not rates:
+        return None
+    revenue = _revenue_prefix(baseline, forecast)
+    length = len(rates)
+    if length >= len(revenue):
+        return None
+    ebitda = baseline.get('ebitda')
+    sales = revenue[length]
+    if not _is_number(ebitda) or not _is_number(sales) or float(sales) == 0:
+        return None
+    level = float(ebitda)
+    for rate in rates:
+        level *= 1.0 + rate
+    margin = level / float(sales)
+    if margin == 0:
+        return None
+    return margin
+
+
 def _compile_ebitda(data):
     year = int(_require(data, 'year'))
     baseline = _require(data, 'baseline')
@@ -250,6 +290,9 @@ def _compile_ebitda(data):
         margin = forecast.get('margin_path')
         if margin:
             args['me'] = _require(margin, 'me')
+            handoff = _handoff_margin(baseline, forecast, growth)
+            if handoff is not None:
+                args['me'] = handoff
             args['mc'] = _require(margin, 'mc')
             args['gsnext'] = _require(margin, 'gsnext')
         steps.append({

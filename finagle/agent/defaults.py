@@ -30,7 +30,7 @@ def apply_defaults(case, currency=None, yahoo_client=None, fetch_yield=True):
 
     _margins(baseline, forecast, filled)
     _yield_and_rates(rates, currency, yahoo_client, fetch_yield, filled, warnings)
-    _sales_growth(forecast, filled)
+    _sales_growth(baseline, forecast, filled)
     _next_sales_growth(forecast, rates, filled)
     _drop_incomplete_margin(forecast, filled)
     _leverage(baseline, debt, filled)
@@ -84,7 +84,7 @@ def _yield_and_rates(rates, currency, yahoo_client, fetch_yield, filled, warning
              'Terminal ROIC of 15 percent.', [], filled)
 
 
-def _sales_growth(forecast, filled):
+def _sales_growth(baseline, forecast, filled):
     if not _missing(forecast.get('ebitda_growth')) or not _missing(forecast.get('ebitda')):
         return
     sales = _series(forecast.get('sales_growth'))
@@ -93,10 +93,33 @@ def _sales_growth(forecast, filled):
     mc = _number(_val(margin.get('mc')))
     if not sales or me in (None, 0) or mc in (None, 0):
         return
-    derived = [mc / me * rate for rate in sales]
+    derived = _rolled_ebitda_growth(
+        sales, me, mc,
+        _number(_val(baseline.get('revenue'))),
+        _number(_val(baseline.get('ebitda'))),
+    )
     _put(forecast, 'ebitda_growth', 'forecast.ebitda_growth', derived,
-         'Sales growth times the contribution margin divided by the EBITDA margin.',
+         'Each year\'s sales growth times the contribution margin divided by that year\'s EBITDA margin.',
          ['forecast.sales_growth', 'forecast.margin_path.me', 'forecast.margin_path.mc'], filled)
+
+
+def _rolled_ebitda_growth(sales, me, mc, revenue, ebitda):
+    '''EBITDA growth from sales growth, updating the margin after each year.
+
+    Year 0 uses the stored EBITDA margin. Each later year uses EBITDA divided
+    by revenue after the previous year's growth. Without both year-0 levels,
+    every year uses the stored margin.
+    '''
+    if revenue in (None, 0) or ebitda is None:
+        return [mc / me * rate for rate in sales]
+    derived = []
+    for rate in sales:
+        derived.append(mc / me * rate)
+        revenue = revenue * (1.0 + rate)
+        ebitda = ebitda * (1.0 + derived[-1])
+        if revenue != 0:
+            me = ebitda / revenue
+    return derived
 
 
 def _next_sales_growth(forecast, rates, filled):

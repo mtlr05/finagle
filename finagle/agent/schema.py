@@ -225,14 +225,20 @@ CASE_JSON_SCHEMA = {
                 'margin_path': {
                     'description': (
                         'Sales-driven forecast after the explicit growth list. Requires ebitda_growth. '
-                        'me is the EBITDA margin, mc is the contribution margin, and gsnext '
-                        'is the next sales growth. me and mc must be non-zero. '
-                        'Filled from sources, or computed when they are missing.'
+                        'me stored here is the year-0 EBITDA margin. The me passed to '
+                        'forecast_ebitda is EBITDA divided by revenue at the end of the '
+                        'explicit growth list when that revenue is known. mc is the '
+                        'contribution margin, and gsnext is the next sales growth. '
+                        'me and mc must be non-zero. Filled from sources, or computed when they are missing.'
                     ),
                     'type': 'object',
                     'additionalProperties': False,
                     'properties': {
-                        'me': _leaf_prop('Ending EBITDA margin, decimal.'),
+                        'me': _leaf_prop(
+                            'Year-0 EBITDA margin, decimal. forecast_ebitda receives '
+                            'EBITDA divided by revenue at the end of the explicit growth '
+                            'list when that revenue is known.'
+                        ),
                         'mc': _leaf_prop('Contribution margin, decimal. Must be non-zero.'),
                         'gsnext': _leaf_prop('Sales growth in the year after the explicit EBITDA growth.'),
                     },

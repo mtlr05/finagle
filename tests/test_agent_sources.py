@@ -474,6 +474,29 @@ def test_sales_growth_becomes_ebitda_growth_only_when_none_was_stated():
     assert kept['forecast']['ebitda_growth']['source'] == 'article'
 
 
+def test_sales_growth_rolls_the_margin_and_keeps_year_zero_me():
+    case = {'baseline': _stated('article', ebitda=100, revenue=400)}
+    case['baseline']['gross_margin'] = leaf(
+        0.50, 'article', 'gross margin', period_end=FY23, basis='fiscal_year')
+    case['forecast'] = {'sales_growth': leaf([0.10, 0.20], 'article', 'sales up 10 then 20')}
+    apply_defaults(case, fetch_yield=False)
+    margin = case['forecast']['margin_path']
+    assert margin['me']['value'] == pytest.approx(100 / 400)
+    assert margin['mc']['value'] == pytest.approx((0.25 + 0.50) / 2)
+    # Year 1 still uses the year-0 margin. Year 2 uses EBITDA / revenue after year 1.
+    me1 = 115 / 440
+    assert case['forecast']['ebitda_growth']['value'] == pytest.approx([
+        0.375 / 0.25 * 0.10,
+        0.375 / me1 * 0.20,
+    ])
+
+    revised = update_case(case, {
+        'forecast': {'sales_growth': leaf([0.10], 'prompt', 'one year of sales growth')},
+    }, run=False)
+    assert revised['case']['forecast']['margin_path']['me']['value'] == pytest.approx(0.25)
+    assert revised['case']['forecast']['ebitda_growth']['value'] == pytest.approx([0.15])
+
+
 def test_update_recomputes_a_derived_margin_without_reading_sources(monkeypatch):
     def boom(*args, **kwargs):
         raise AssertionError('a source was read again')

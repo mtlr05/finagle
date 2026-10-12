@@ -37,7 +37,7 @@ Build each figure with `finagle.agent.schema.leaf(value, source, evidence, perio
 
 When no source states them, `build_baseline` fills:
 
-- `me` = year-0 EBITDA / revenue, and `mc` = the average of `me` and the gross margin (`mc` equals `me` when gross margin is missing). The forecast uses these so the years after any explicit growth list are driven by sales. A stated EBITDA growth rate is kept. Sales growth is turned into EBITDA growth only when no EBITDA growth was stated.
+- `me` = year-0 EBITDA / revenue, and `mc` = the average of `me` and the gross margin (`mc` equals `me` when gross margin is missing). Derived EBITDA growth rolls that margin forward: each year's sales growth is multiplied by `mc` divided by that year's EBITDA margin. The `me` passed to `forecast_ebitda` is EBITDA divided by revenue at the end of the explicit growth list when that revenue is known. A stated EBITDA growth rate is kept. Sales growth is turned into EBITDA growth only when no EBITDA growth was stated.
 - `re` = 0.055 + the 10-year yield of the reporting currency. `gt` equals that yield, and a higher `gt` is an error. `roict` = 0.15.
 - The price is the last trading day's close, in the reporting currency.
 - With no debt policy, the target Debt/EBITDA is the year-0 ratio, starting in year 1.
