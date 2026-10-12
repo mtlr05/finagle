@@ -4,6 +4,7 @@ import os
 import pandas as pd
 import pytest
 
+from finagle.agent.compile import compile_case
 from finagle.agent.runner import run_case, sanity_flags
 
 
@@ -462,6 +463,59 @@ def test_negative_terminal_depreciation_is_a_warning(tmp_path, monkeypatch):
     assert result['case']['ticker'] == 'XMPL'
     assert any('negative depreciation' in row['message'] and row['level'] == 'WARNING' for row in result['log'])
     assert not any(row['level'] == 'ERROR' for row in result['log'])
+
+
+def test_sales_growth_seeds_the_revenue_prefix(tmp_path, monkeypatch):
+    monkeypatch.chdir(tmp_path)
+    revenue0 = 272.303
+    g1 = 0.3401
+    g2 = 0.2329
+    case = {
+        'path': 'ebitda',
+        'ticker': 'SALES',
+        'year': 4,
+        'market': {'shares': leaf(10)},
+        'rates': _rates(0.05, 0.10, 0.21, 0.02, 0.15),
+        'baseline': _baseline(
+            '2025-12-31', 61.923, 0.887, 18.906, 3.771, 24.18, 12.502,
+            250, 72.927, 0, 0,
+        ),
+        'forecast': {
+            'ebitda_basis': leaf('organic'),
+            'acquisition_disclosure': {'status': leaf('none')},
+            'ebitda_growth': leaf([0.73, 0.50]),
+            'sales_growth': leaf([g1, g2]),
+            'margin_path': {
+                'me': leaf(0.2274),
+                'mc': leaf(0.4890),
+                'gsnext': leaf(g2),
+            },
+            'capex': leaf([0.887] * 5),
+            'sbc': leaf([12.502] * 5),
+            'dwc': {'mode': leaf('zero')},
+        },
+        'debt': {'mode': leaf('hold')},
+        'distribution': {'mode': leaf('none')},
+    }
+    case['baseline']['revenue'] = leaf(revenue0)
+    year1 = revenue0 * (1 + g1)
+    compiled = compile_case(case)
+    assert compiled['financials']['revenue'] == pytest.approx([
+        revenue0, year1, year1 * (1 + g2),
+    ])
+
+    result = run_case(case)
+    assert result['ok'], {
+        'error': result.get('error'),
+        'log': result.get('log'),
+        'validation': result.get('validation'),
+    }
+    assert repr(revenue0) in result['notebook_code']
+    namespace = {}
+    exec(result['notebook_code'], namespace)
+    forecast = namespace['model']._forecasts['revenue']
+    assert forecast[0] == pytest.approx(revenue0)
+    assert forecast[1] == pytest.approx(year1)
 
 
 def test_sanity_flags_follow_the_cash_rules():

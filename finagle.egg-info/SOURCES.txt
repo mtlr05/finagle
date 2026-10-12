@@ -12,10 +12,12 @@ finagle/agent/__init__.py
 finagle/agent/baseline.py
 finagle/agent/catalog.py
 finagle/agent/compile.py
+finagle/agent/defaults.py
 finagle/agent/mcp_server.py
 finagle/agent/runner.py
 finagle/agent/schema.py
 finagle/agent/sources.py
+finagle/agent/update.py
 finagle/agent/validate.py
 finagle/agent/yahoo.py
 tests/test_agent_baseline.py

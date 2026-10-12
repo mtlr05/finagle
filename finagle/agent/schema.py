@@ -155,7 +155,10 @@ CASE_JSON_SCHEMA = {
                 'date': _leaf_prop('Baseline period end, YYYY-MM-DD.'),
                 'ebitda': _leaf_prop('Year-0 EBITDA before stock-based compensation, millions.'),
                 'ebitda_definition': _leaf_prop('before_sbc or after_sbc. The model can only run before_sbc.'),
-                'revenue': _leaf_prop('Informational. The model fills the revenue column itself.'),
+                'revenue': _leaf_prop(
+                    'Year-0 revenue, millions. The compiler writes it as index 0 of the '
+                    'revenue column. Later stated sales-growth years are compounded from it.'
+                ),
                 'gross_margin': _leaf_prop(
                     'Year-0 gross profit divided by revenue, as a decimal. '
                     'Used to set the contribution margin when no source states one.'
@@ -210,9 +213,10 @@ CASE_JSON_SCHEMA = {
                     'Kept when a source states it. Otherwise derived from sales_growth.'
                 ),
                 'sales_growth': _leaf_prop(
-                    'Sales growth after year 0. Used to build EBITDA growth only when '
-                    'ebitda_growth was not stated. The last rate is the next sales growth '
-                    'when gsnext was not stated.'
+                    'Sales growth after year 0. The compiler compounds each rate onto '
+                    'year-0 revenue and writes those dollars into the revenue column. '
+                    'Also used to build EBITDA growth only when ebitda_growth was not '
+                    'stated. The last rate is the next sales growth when gsnext was not stated.'
                 ),
                 'ebitda': _leaf_prop(
                     'Explicit EBITDA for every year, including year 0, on the basis in ebitda_basis. '

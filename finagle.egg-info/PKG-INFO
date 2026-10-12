@@ -1,4 +1,4 @@
-Metadata-Version: 2.4
+Metadata-Version: 2.1
 Name: finagle
 Version: 0.0.0
 Summary: for the valuation of a company
@@ -13,7 +13,3 @@ Provides-Extra: agent
 Requires-Dist: mcp>=1.2; extra == "agent"
 Provides-Extra: yahoo
 Requires-Dist: yfinance; extra == "yahoo"
-Dynamic: home-page
-Dynamic: provides-extra
-Dynamic: requires-dist
-Dynamic: summary

@@ -49,6 +49,33 @@ def _as_list(value):
     return [value]
 
 
+def _is_number(value):
+    return isinstance(value, (int, float)) and not isinstance(value, bool)
+
+
+def _revenue_prefix(baseline, forecast):
+    '''Year-0 revenue, then each stated sales-growth rate compounded forward.
+
+    Missing year-0 revenue stays ``[0]`` so a case without sales still loads.
+    ``forecast_ebitda`` keeps this prefix and fills only the open later years.
+    '''
+    revenue = baseline.get('revenue')
+    if not _is_number(revenue):
+        return [0]
+    series = [float(revenue)]
+    growth = forecast.get('sales_growth')
+    if growth is None:
+        return series
+    rates = growth if isinstance(growth, list) else [growth]
+    level = series[0]
+    for rate in rates:
+        if not _is_number(rate):
+            break
+        level = level * (1.0 + float(rate))
+        series.append(level)
+    return series
+
+
 def _compile_ebitda(data):
     year = int(_require(data, 'year'))
     baseline = _require(data, 'baseline')
@@ -85,7 +112,7 @@ def _compile_ebitda(data):
 
     financials = {
         'date': _require(baseline, 'date'),
-        'revenue': [0],
+        'revenue': _revenue_prefix(baseline, forecast),
         'ebitda': ebitda_series,
         'capex': capex_series,
         'sbc': sbc_series,
