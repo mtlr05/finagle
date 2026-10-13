@@ -39,6 +39,7 @@ _LEAF = {
             'type': 'string',
             'description': (
                 'A short quote from the article, a page and quote from the attachment, '
+                'a chart label, OCR text, or a chart value read from the axis, '
                 'an XBRL tag, a Yahoo row name, or the reason for an assumption.'
             ),
         },

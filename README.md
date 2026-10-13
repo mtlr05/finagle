@@ -264,7 +264,7 @@ yfinance is optional: `pip install -e ".[yahoo]"`. It is unofficial, Yahoo limit
 
 ### Connecting Grok
 
-If a bot, like GrokBot can clone this repository and run Python, point it at [`AGENTS.md`](AGENTS.md) and give it the article text. Paste the text instead of a link, because paywalled posts often will not load for the bot.
+If a bot, like GrokBot can clone this repository and run Python, point it at [`AGENTS.md`](AGENTS.md) and give it the article text. Paste the article text instead of a link, because paywalled posts often will not load for the bot. A presentation file, or a presentation URL you supply, is read as an attachment, including its charts.
 
 ```text
 Value the company in the article below using the finagle repo

@@ -17,6 +17,7 @@ from typing import Optional
 
 from finagle.agent.baseline import get_10k_baseline as load_10k_baseline
 from finagle.agent.catalog import VALUE_FROM_ARTICLE, describe_inputs as catalog_inputs
+from finagle.agent.documents import read_pdf as read_pdf_file
 from finagle.agent.runner import run_case as run_valuation
 from finagle.agent.schema import case_tool_schema
 from finagle.agent.sources import build_baseline as merge_baseline
@@ -25,12 +26,18 @@ from finagle.agent.validate import validate_case as check_case
 
 _INSTRUCTIONS = (
     'Value a stock from an article already in the conversation, and from other '
-    'files when the user attached them. A figure stated in the request comes first. '
-    'Call describe_inputs, then build_baseline with the prompt, article, and '
-    'attachments in that order. It fills the last fiscal year and the default '
-    'assumptions. Then validate_case, then run_case. On a follow-up, call '
-    'update_case with only what changed. Use the value_from_article prompt. Do not '
-    'invent method calls, and do not tune inputs to an article price target.'
+    'files when the user attached them. Read charts in the article and in '
+    'attachments, including an investor presentation and a presentation URL the '
+    'user supplies. Printed labels, OCR digits, and axis readings are article or '
+    'attachment figures. Do not fetch the article URL. A figure stated in the '
+    'request comes first. Call describe_inputs, then read_pdf on every PDF, '
+    'then build_baseline with the prompt, article, attachments, and documents '
+    'in that order. If unread_charts is set, cite those pages and call '
+    'build_baseline again before validate_case. build_baseline fills the last fiscal '
+    'year and the default assumptions. Then validate_case, then run_case. On a '
+    'follow-up, call update_case with only what changed. Use the value_from_article '
+    'prompt. Do not invent method calls, and do not tune inputs to an article '
+    'price target.'
 )
 
 
@@ -49,6 +56,20 @@ def build_server():
         currency, shares are millions of shares, and rates are decimals.
         '''
         return catalog_inputs()
+
+    @server.tool()
+    def read_pdf(path: str, out_dir: str, name: str = '') -> dict:
+        '''Extract a PDF, including a chart block for every large image.
+
+        Call this on the article and each attachment PDF before build_baseline.
+        name is "article" for the primary article, or the attachment name.
+        The extract in out_dir holds page text plus OCR, or an UNREAD CHART
+        line naming the png to open. Pass the return value in documents.
+        '''
+        try:
+            return read_pdf_file(path, out_dir, name=name or None)
+        except Exception as exc:
+            return {'ok': False, 'error': '%s: %s' % (type(exc).__name__, exc)}
 
     @server.tool()
     def get_10k_baseline(ticker: str, user_agent: str = '') -> dict:
@@ -82,13 +103,16 @@ def build_server():
         country: str = '',
         period_end: str = '',
         user_agent: str = '',
+        documents: Optional[list] = None,
     ) -> dict:
         '''Fill the case from the prompt, the article, other attachments, the SEC, then yfinance.
 
         prompt, article, and each attachment map fields to leaves you read.
         Reported baseline leaves need basis fiscal_year, period_end, and
         currency. attachments is an ordered list of {name, leaves}; the
-        request sets that order. Year 0 is the last completed fiscal year,
+        request sets that order. documents is the list read_pdf returned.
+        A chart page that is not cited comes back as unread_charts and no
+        case. Year 0 is the last completed fiscal year,
         never trailing twelve months. Canadian companies (a .TO, .V, .CN, or
         .NE ticker, or country CA) skip the SEC. Also fills me, mc, the cost
         of equity, terminal growth, ROIC, the last close, year-0 leverage,
@@ -105,6 +129,7 @@ def build_server():
                 user_agent=agent or None,
                 country=country or None,
                 period_end=period_end or None,
+                documents=documents,
             )
         except Exception as exc:
             return {'ok': False, 'error': '%s: %s' % (type(exc).__name__, exc)}

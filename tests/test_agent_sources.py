@@ -6,7 +6,7 @@ import sys
 import pandas as pd
 import pytest
 
-from finagle.agent import apply_defaults, build_baseline, update_case, validate_case, yahoo_baseline
+from finagle.agent import apply_defaults, build_baseline, read_pdf, update_case, validate_case, yahoo_baseline
 from finagle.agent.schema import leaf
 
 ROOT = os.path.dirname(os.path.dirname(__file__))
@@ -524,6 +524,88 @@ def test_update_recomputes_a_derived_margin_without_reading_sources(monkeypatch)
     }, run=False)
     assert edited['case']['forecast']['margin_path']['me']['value'] == pytest.approx(300 / 1200)
     assert 'baseline.ebitda' in edited['case']['forecast']['margin_path']['me']['derived_from']
+
+
+def _chart_doc(page, name='article', ocr=None):
+    return {
+        'name': name,
+        'pages': [{
+            'page': page,
+            'text': 'prose',
+            'charts': [{'png': 'page_%d.png' % page, 'ocr': ocr, 'needs_visual_read': ocr is None}],
+        }],
+    }
+
+
+def test_build_baseline_rejects_an_uncited_chart_page():
+    result = build_baseline(
+        'XMPL',
+        article={'revenue': leaf(100, 'article', 'revenue was 100', period_end=FY23, basis='fiscal_year', currency='USD')},
+        documents=[_chart_doc(9, ocr='364.9')],
+        period_end=FY23,
+        yahoo_client=FakeYahoo(),
+        user_agent=UA,
+    )
+    assert result['ok'] is False
+    assert result['unread_charts'][0]['page'] == 9
+    assert result['unread_charts'][0]['ocr'] == '364.9'
+    assert 'case' not in result
+
+
+def test_build_baseline_accepts_a_chart_citation_and_a_blank_image(sec):
+    article = {
+        'revenue': leaf(
+            364.9, 'article', 'p. 9 chart OCR: 2026 revenue 364.9',
+            period_end=FY23, basis='fiscal_year', currency='USD',
+        ),
+    }
+    deck = {
+        'name': 'Harrow 2Q26 investor presentation',
+        'leaves': {
+            'cash': leaf(1, 'attachment', 'p. 2 image: no numeric labels', period_end=FY23, basis='fiscal_year', currency='USD'),
+        },
+    }
+    documents = [
+        _chart_doc(9, ocr='364.9'),
+        _chart_doc(2, name='Harrow 2Q26 investor presentation'),
+    ]
+    result = build_baseline(
+        'XMPL', article=article, attachments=[deck], documents=documents,
+        period_end=FY23, yahoo_client=FakeYahoo(), user_agent=UA,
+    )
+    assert result.get('unread_charts') in (None, [])
+    assert result['ok'] is True
+    assert result['baseline']['revenue']['value'] == 364.9
+
+
+def test_read_pdf_writes_the_ocr_block_and_skips_a_logo(tmp_path):
+    def reader(path):
+        return [
+            {'page': 1, 'text': 'logo only', 'images': [{'area_fraction': 0.01}]},
+            {'page': 3, 'text': 'edge', 'images': [{'area_fraction': 0.08, 'ocr': 'edge label'}]},
+            {'page': 9, 'text': '2026 Revenue Prediction', 'images': [{'area_fraction': 0.2, 'ocr': '2026 revenue 364.9'}]},
+        ]
+
+    result = read_pdf(tmp_path / 'article.pdf', tmp_path, name='article', reader=reader)
+    text = (tmp_path / 'article_extract.txt').read_text(encoding='utf-8')
+    assert '--- chart p. 9 ---' in text
+    assert 'OCR: 2026 revenue 364.9' in text
+    assert '--- chart p. 3 ---' in text
+    assert '--- chart p. 1 ---' not in text
+    assert result['name'] == 'article'
+    assert result['pages'][0]['charts'] == []
+    assert result['pages'][2]['charts'][0]['needs_visual_read'] is False
+
+
+def test_read_pdf_marks_a_chart_unread_when_ocr_is_missing(tmp_path):
+    def reader(path):
+        return [{'page': 9, 'text': 'chart page', 'images': [{'area_fraction': 0.5}]}]
+
+    result = read_pdf(tmp_path / 'note.pdf', tmp_path, reader=reader)
+    text = (tmp_path / 'note_extract.txt').read_text(encoding='utf-8')
+    assert 'UNREAD CHART: open page_9.png' in text
+    assert result['pages'][0]['charts'][0]['ocr'] is None
+    assert result['pages'][0]['charts'][0]['needs_visual_read'] is True
 
 
 def test_yahoo_gross_profit_becomes_a_margin():

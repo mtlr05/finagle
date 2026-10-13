@@ -8,6 +8,7 @@ from finagle.agent.baseline import get_10k_baseline, sec_baseline, shares_from_f
 from finagle.agent.catalog import VALUE_FROM_ARTICLE, describe_inputs
 from finagle.agent.compile import compile_case
 from finagle.agent.defaults import apply_defaults
+from finagle.agent.documents import read_pdf
 from finagle.agent.runner import run_case
 from finagle.agent.schema import CASE_JSON_SCHEMA, case_tool_schema
 from finagle.agent.sources import build_baseline
@@ -24,6 +25,7 @@ __all__ = [
     'compile_case',
     'describe_inputs',
     'get_10k_baseline',
+    'read_pdf',
     'run_case',
     'sec_baseline',
     'shares_from_facts',

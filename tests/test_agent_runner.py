@@ -8,6 +8,14 @@ from finagle.agent.compile import compile_case, normalize_assumed_paths
 from finagle.agent.runner import run_case, sanity_flags
 
 
+def _exec_notebook(code):
+    '''Run the generated cell without writing the Excel workbook.'''
+    code = code.replace('\nco.display_fin()\n', '\n# co.display_fin()\n')
+    namespace = {}
+    exec(code, namespace)
+    return namespace
+
+
 def leaf(value):
     return {
         'value': value,
@@ -334,9 +342,8 @@ def test_notebook_code_reruns_the_resolved_acquisition(tmp_path, monkeypatch):
     monkeypatch.chdir(tmp_path)
     result = run_case(frg_acquire_case())
     assert result['ok']
-    namespace = {}
-    exec(result['notebook_code'], namespace)
-    assert namespace['model'].fin['equity'].iloc[0] == pytest.approx(result['equity'])
+    namespace = _exec_notebook(result['notebook_code'])
+    assert namespace['co'].fin['equity'].iloc[0] == pytest.approx(result['equity'])
 
 
 def test_earnings_path_reports_equity_only():
@@ -529,9 +536,8 @@ def test_sales_growth_seeds_the_revenue_prefix(tmp_path, monkeypatch):
         for warning in result['validation']['warnings']
     )
     assert repr(revenue0) in result['notebook_code']
-    namespace = {}
-    exec(result['notebook_code'], namespace)
-    forecast = namespace['model']._forecasts['revenue']
+    namespace = _exec_notebook(result['notebook_code'])
+    forecast = namespace['co']._forecasts['revenue']
     assert forecast[0] == pytest.approx(revenue0)
     assert forecast[1] == pytest.approx(year1)
 
@@ -579,9 +585,13 @@ def test_forecast_ebitda_uses_the_handoff_margin(tmp_path, monkeypatch):
     result = run_case(case)
     assert result['ok'], result.get('error')
     assert result['case']['forecast']['margin_path']['me']['value'] == pytest.approx(0.25)
-    namespace = {}
-    exec(result['notebook_code'], namespace)
-    forecast = namespace['model']._forecasts['revenue']
+    code = result['notebook_code']
+    assert '# co.forecast_ebitda(ebitda_ttm, gf, financials)\n' in code
+    assert '\nco.forecast_ebitda(ebitda_ttm, gf, financials, me=me, mc=mc, gsnext=gsnext)\n' in code
+    assert "# co.fcf_to_buyback(price=price, dp='proportional')" in code
+    assert '\nco.display_fin()\n' in code
+    namespace = _exec_notebook(code)
+    forecast = namespace['co']._forecasts['revenue']
     gsnext = case['forecast']['margin_path']['gsnext']['value']
     assert forecast[3] == pytest.approx(revenue_l * (1 + gsnext))
 

@@ -11,11 +11,11 @@ def test_server_exposes_the_case_schema_and_the_article_prompt():
     tools = anyio.run(server.list_tools)
     by_name = {tool.name: tool for tool in tools}
     assert set(by_name) == {
-        'describe_inputs', 'build_baseline', 'get_10k_baseline', 'validate_case', 'run_case',
-        'update_case',
+        'describe_inputs', 'read_pdf', 'build_baseline', 'get_10k_baseline', 'validate_case',
+        'run_case', 'update_case',
     }
     baseline_args = by_name['build_baseline'].input_schema['properties']
-    assert {'ticker', 'prompt', 'article', 'attachment', 'attachments', 'country', 'period_end'} <= set(baseline_args)
+    assert {'ticker', 'prompt', 'article', 'attachment', 'attachments', 'country', 'period_end', 'documents'} <= set(baseline_args)
     schema = by_name['validate_case'].input_schema
     assert schema['required'] == ['case']
     assert 'ticker' in schema['properties']['case']['properties']

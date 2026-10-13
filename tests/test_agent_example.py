@@ -11,6 +11,14 @@ CASE = os.path.join(ROOT, 'examples', 'article_case.json')
 ARTICLE = os.path.join(ROOT, 'examples', 'sample_article.md')
 
 
+def _exec_notebook(code):
+    '''Run the generated cell without writing the Excel workbook.'''
+    code = code.replace('\nco.display_fin()\n', '\n# co.display_fin()\n')
+    namespace = {}
+    exec(code, namespace)
+    return namespace
+
+
 def _load():
     with open(CASE, encoding='utf-8') as handle:
         return json.load(handle)
@@ -65,7 +73,6 @@ def test_example_runs_and_the_buyback_program_ends(tmp_path, monkeypatch):
     acquire = next(step for step in result['steps'] if step['method'] == 'fcf_to_acquire')
     assert acquire['args']['ebitda_frac'] == pytest.approx(10 / (240 * 1.08))
 
-    namespace = {}
-    exec(result['notebook_code'], namespace)
-    assert namespace['model'].fin['value_per_share'].iloc[0] == pytest.approx(result['value_per_share'])
+    namespace = _exec_notebook(result['notebook_code'])
+    assert namespace['co'].fin['value_per_share'].iloc[0] == pytest.approx(result['value_per_share'])
     assert list(tmp_path.iterdir()) == [tmp_path / 'XMPL.log']

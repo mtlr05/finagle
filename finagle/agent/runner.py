@@ -5,7 +5,6 @@ not land next to a person's notebooks. display_fin is not called.
 '''
 
 import os
-import pprint
 import tempfile
 import threading
 
@@ -26,9 +25,39 @@ _YEAR_COLUMNS = (
 _EBITDA_GAP = 0.05
 _MNA_GAP = 0.10
 
-_CTOR_ORDER = (
+_SCALAR_ORDER = (
     'ticker', 'rd', 're', 't', 'te', 'shares', 'price', 'gt', 'roict',
-    'year', 'dividend', 'fcfe',
+    'year', 'dividend',
+)
+_SCALAR_DEFAULTS = {
+    'ticker': 'REPLACE',
+    'rd': None,
+    're': None,
+    't': None,
+    'te': None,
+    'shares': 1,
+    'price': 0,
+    'gt': 0,
+    'roict': 0.15,
+    'year': 6,
+    'dividend': 0,
+}
+_FINANCIAL_KEYS = (
+    'date', 'revenue', 'ebitda', 'capex', 'dwc', 'sbc', 'tax', 'da',
+    'debt', 'interest', 'cash', 'nol', 'noa',
+)
+_FINANCIAL_COMMENTS = {
+    'revenue': 'leave [0] if forecast_ebitda is commented; that call overwrites it',
+    'ebitda': 'TTM only, or a full list of year + 1 values',
+}
+_ACQUIRE_STUB = (
+    '# co.fcf_to_acquire(adjust_cash=False, year_a=%s, ebitda_frac=0.10, '
+    'multiple=10, leverage=3, gnext=0.10, cap_frac=0.20)'
+)
+_DISTRIBUTION_STUBS = (
+    ('fcf_to_allocate', "# co.fcf_to_allocate(price=price, dp='proportional', buybacks=None)"),
+    ('fcf_to_buyback', "# co.fcf_to_buyback(price=price, dp='proportional')"),
+    ('fcf_to_bs', '# co.fcf_to_bs()'),
 )
 
 _ARG_ORDER = {
@@ -202,33 +231,197 @@ def _invoke(model, step, financials):
 
 
 def notebook_code(compiled, executed):
-    '''Python a person can paste into a notebook to rerun the same case.'''
+    '''Python in the shape of the template's scenario-copy cell.
+
+    Methods this run called stay live. The template's other methods stay
+    in the cell and are commented. The instance name is co.
+    '''
     financials = compiled['financials']
+    constructor = compiled['constructor']
+    direct_fcfe = 'fcfe' in constructor
+    earnings = _named(executed, 'fcf_from_earnings')
+    ebitda_path = not direct_fcfe and not earnings
+    ebitda_step = _first(executed, 'forecast_ebitda')
+    margin = bool(ebitda_step and {'me', 'mc', 'gsnext'} <= set(ebitda_step['args']))
+
     lines = [
         'import finagle as cmp',
         '',
-        'financials = ' + pprint.pformat(financials, sort_dicts=False),
+        '# Scenario copy. Edit this cell; leave the cell above as the base case.',
+        '# First variant: uncomment the margin-path forecast_ebitda and comment the growth-only call.',
         '',
     ]
-    constructor = compiled['constructor']
-    parts = []
-    for key in _CTOR_ORDER:
+    for key in _SCALAR_ORDER:
         if key in constructor:
-            parts.append('%s=%r' % (key, constructor[key]))
-    if 'financials' in constructor:
-        parts.append('financials=financials')
-    lines.append('model = cmp.company(%s)' % ', '.join(parts))
-    for step in executed:
-        lines.append(_call_line(step))
+            value = constructor[key]
+        else:
+            value = _SCALAR_DEFAULTS[key]
+        lines.append('%s = %r' % (key, value))
+    if direct_fcfe:
+        lines.append('fcfe = %r' % (constructor['fcfe'],))
+    lines.append('')
+    if direct_fcfe:
+        lines.extend(_financials_lines(financials))
+        lines.append('')
+    lines.extend(_company_call(direct_fcfe))
+    lines.append('')
+    if not direct_fcfe:
+        lines.append('n = year + 1')
+        lines.extend(_financials_lines(financials))
+        lines.append('')
+    lines.extend(_forecast_lines(executed, ebitda_step, margin))
+    lines.append(_comment(
+        'co.load_financials(financials=financials.copy())', not direct_fcfe,
+    ))
+    lines.append(_comment('co.fcf_from_ebitda()', ebitda_path))
+    if earnings:
+        lines.append(_call_line(earnings[0]))
+    else:
+        lines.append(
+            '# co.fcf_from_earnings(payout=1, gf=0, ROE=1)'
+            '  # alternate path; do not combine with EBITDA'
+        )
+    lines.append('')
+    lines.extend(_action_lines(executed))
+    lines.append('')
+    lines.append('co.value()')
+    lines.append(_comment('co.display_fin()', ebitda_path))
     return '\n'.join(lines) + '\n'
+
+
+def _company_call(direct_fcfe):
+    lines = [
+        'co = cmp.company(',
+        '    ticker=ticker, rd=rd, re=re, t=t, te=te,',
+        '    shares=shares, price=price, gt=gt, roict=roict,',
+        '    year=year, dividend=dividend,',
+    ]
+    if direct_fcfe:
+        lines.append('    fcfe=fcfe, financials=financials,')
+    lines.append(')')
+    return lines
+
+
+def _financials_lines(financials):
+    lines = ['financials = {']
+    keys = [key for key in _FINANCIAL_KEYS if key in financials]
+    keys.extend(key for key in financials if key not in keys)
+    for key in keys:
+        comment = _FINANCIAL_COMMENTS.get(key)
+        suffix = '  # %s' % comment if comment else ''
+        lines.append('    %r: %r,%s' % (key, financials[key], suffix))
+    lines.append('}')
+    return lines
+
+
+def _forecast_lines(executed, ebitda_step, margin):
+    lines = [
+        '# gf: explicit EBITDA growth. Interpolated toward gt. Non-NaN prefix = explicit years.',
+        '# Growth-only: ebitda[i+1] = ebitda[i] * (1 + g[i]); revenue is 0.',
+        '# Margin path (me, mc, and gsnext all set), after the explicit gf years:',
+        '#   me = EBITDA/sales at the handoff; revenue = ebitda/me * (1+gs)',
+        '#   mc = incremental EBITDA / incremental sales',
+        '#   gsnext = sales growth in the first year after explicit EBITDA growth, then faded to gt',
+        '#   ebitda[i+1] = ebitda[i] * (1 + (mc/me) * gs[i]); me is updated to the new margin',
+    ]
+    if ebitda_step:
+        args = ebitda_step['args']
+        lines.append('ebitda_ttm = %r' % (args['ebitda_ttm'],))
+        lines.append('gf = %r' % (args['gf'],))
+    else:
+        lines.append("# ebitda_ttm = financials['ebitda'][0]")
+        lines.append('# gf = [0.10, 0.05]')
+    lines.append('')
+    lines.append(
+        '# Comment this out when ebitda is already a full list. Keep revenue at [0] in that case.'
+    )
+    lines.append(_comment(
+        'co.forecast_ebitda(ebitda_ttm, gf, financials)',
+        ebitda_step is not None and not margin,
+    ))
+    lines.append('')
+    if margin:
+        args = ebitda_step['args']
+        lines.append('me = %r' % (args['me'],))
+        lines.append('mc = %r' % (args['mc'],))
+        lines.append('gsnext = %r' % (args['gsnext'],))
+        lines.append(
+            'co.forecast_ebitda(ebitda_ttm, gf, financials, me=me, mc=mc, gsnext=gsnext)'
+        )
+    else:
+        lines.append('# me = 0.25')
+        lines.append('# mc = 0.40')
+        lines.append('# gsnext = 0.10')
+        lines.append(
+            '# co.forecast_ebitda(ebitda_ttm, gf, financials, me=me, mc=mc, gsnext=gsnext)'
+        )
+    lines.append('')
+    sbc = _first(executed, 'forecast_sbc')
+    if sbc:
+        lines.append(_call_line(sbc))
+    else:
+        lines.append(
+            "# co.forecast_sbc(sbc_f=financials['sbc'], sbc_rate_t=None, financials=financials)"
+        )
+    lines.append('# method omitted: 1 when revenue was forecast, 2 when revenue stays 0.')
+    capex = _first(executed, 'forecast_capex')
+    if capex:
+        lines.append(_call_line(capex))
+    else:
+        lines.append("# co.forecast_capex(financials['capex'], financials)")
+    lines.append('')
+    return lines
+
+
+def _action_lines(executed):
+    lines = []
+    deals = _named(executed, 'fcf_to_acquire')
+    if deals:
+        lines.extend(_call_line(step) for step in deals)
+    else:
+        lines.append(_ACQUIRE_STUB % 1)
+        lines.append(_ACQUIRE_STUB % 2)
+    disposals = _named(executed, 'noa_to_dispose')
+    if disposals:
+        lines.extend(_call_line(step) for step in disposals)
+    else:
+        lines.append('# co.noa_to_dispose(dnoa=0, tax=0, year_dis=1)')
+    debt = _first(executed, 'fcf_to_debt')
+    if debt:
+        lines.append(_call_line(debt))
+    else:
+        lines.append('# co.fcf_to_debt(leverage=3, year_d=1)')
+    lines.append('')
+    lines.append('# Exactly one distribution method:')
+    for name, stub in _DISTRIBUTION_STUBS:
+        step = _first(executed, name)
+        lines.append(_call_line(step) if step else stub)
+    return lines
+
+
+def _named(executed, name):
+    return [step for step in executed if step['method'] == name]
+
+
+def _first(executed, name):
+    found = _named(executed, name)
+    if found:
+        return found[0]
+    return None
+
+
+def _comment(line, live):
+    if live:
+        return line
+    return '# ' + line
 
 
 def _call_line(step):
     name = step['method']
     if name == 'value':
-        return 'model.value()'
+        return 'co.value()'
     if name == 'load_financials':
-        return 'model.load_financials(financials=financials.copy())'
+        return 'co.load_financials(financials=financials.copy())'
     args = step.get('args') or {}
     ordered = []
     for key in _ARG_ORDER.get(name, ()):
@@ -239,7 +432,7 @@ def _call_line(step):
             ordered.append('%s=%r' % (key, args[key]))
     if step.get('pass_financials'):
         ordered.append('financials=financials')
-    return 'model.%s(%s)' % (name, ', '.join(ordered))
+    return 'co.%s(%s)' % (name, ', '.join(ordered))
 
 
 def _acquisitions_summary(model):

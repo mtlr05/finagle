@@ -12,6 +12,7 @@ from datetime import datetime
 
 from finagle.agent.baseline import sec_baseline
 from finagle.agent.defaults import apply_defaults
+from finagle.agent.documents import unread_charts
 from finagle.agent.schema import SOURCES, is_leaf
 from finagle.agent.yahoo import PERIOD_TOLERANCE_DAYS, yahoo_baseline
 
@@ -32,7 +33,7 @@ _FORECAST_FIELDS = ('ebitda_growth', 'sales_growth', 'ebitda', 'capex', 'sbc', '
 
 def build_baseline(ticker, article=None, attachment=None, attachments=None,
                    prompt=None, user_agent=None, country=None, period_end=None,
-                   yahoo_client=None):
+                   yahoo_client=None, documents=None):
     '''Merge inputs, then fill the remaining default assumptions.
 
     Priority is a figure stated in ``prompt``, then the primary ``article``,
@@ -41,6 +42,11 @@ def build_baseline(ticker, article=None, attachment=None, attachments=None,
     treated as a one-item list. Each attachment is ``{name, leaves}`` or a
     flat leaf map. ``sources_used`` names the winning attachment, such as
     ``attachment:investor presentation``.
+
+    ``documents`` is the list ``read_pdf`` returned for the article and each
+    attachment PDF. When a chart page is not cited in that source, the result
+    is ``ok: false`` with ``unread_charts`` and no case. Omit ``documents``
+    for a text article.
 
     Reported baseline leaves need ``basis: "fiscal_year"`` and a
     ``period_end``. Trailing-twelve-month and quarterly leaves are left out
@@ -53,6 +59,17 @@ def build_baseline(ticker, article=None, attachment=None, attachments=None,
     ticker = str(ticker or '').strip()
     if not ticker:
         raise ValueError('ticker is required')
+    unread = unread_charts(documents, article, attachment, attachments)
+    if unread:
+        return {
+            'ok': False,
+            'ticker': ticker,
+            'error': (
+                'Chart pages have not been cited. Open each png, cite the page '
+                'in the matching source, and call build_baseline again.'
+            ),
+            'unread_charts': unread,
+        }
     canadian = _is_canadian(ticker, country)
     if canadian and not ticker.upper().endswith(CANADIAN_SUFFIXES):
         return {
