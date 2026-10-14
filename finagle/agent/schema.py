@@ -217,7 +217,10 @@ CASE_JSON_SCHEMA = {
                     'Sales growth after year 0. The compiler compounds each rate onto '
                     'year-0 revenue and writes those dollars into the revenue column. '
                     'Also used to build EBITDA growth only when ebitda_growth was not '
-                    'stated. The last rate is the next sales growth when gsnext was not stated.'
+                    'stated. When EBITDA growth is stated and this is not, it is the '
+                    'sales path that the margin roll turns back into that EBITDA growth. '
+                    'The last rate is the next sales growth when gsnext was not stated. '
+                    'That next rate equals terminal growth only when the sales path cannot be computed.'
                 ),
                 'ebitda': _leaf_prop(
                     'Explicit EBITDA for every year, including year 0, on the basis in ebitda_basis. '

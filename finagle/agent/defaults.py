@@ -31,6 +31,7 @@ def apply_defaults(case, currency=None, yahoo_client=None, fetch_yield=True):
     _margins(baseline, forecast, filled)
     _yield_and_rates(rates, currency, yahoo_client, fetch_yield, filled, warnings)
     _sales_growth(baseline, forecast, filled)
+    _sales_from_ebitda(baseline, forecast, filled)
     _next_sales_growth(forecast, rates, filled)
     _drop_incomplete_margin(forecast, filled)
     _leverage(baseline, debt, filled)
@@ -122,6 +123,47 @@ def _rolled_ebitda_growth(sales, me, mc, revenue, ebitda):
     return derived
 
 
+def _sales_from_ebitda(baseline, forecast, filled):
+    '''Sales growth that the margin roll turns back into the stated EBITDA growth.'''
+    if not _missing(forecast.get('sales_growth')):
+        return
+    ebitda_growth = _series(forecast.get('ebitda_growth'))
+    if not ebitda_growth:
+        return
+    margin = forecast.get('margin_path') or {}
+    me = _number(_val(margin.get('me')))
+    mc = _number(_val(margin.get('mc')))
+    if me in (None, 0) or mc in (None, 0):
+        return
+    revenue = _number(_val(baseline.get('revenue')))
+    ebitda = _number(_val(baseline.get('ebitda')))
+    derived = _rolled_sales_growth(ebitda_growth, me, mc, revenue, ebitda)
+    sources = ['forecast.ebitda_growth', 'forecast.margin_path.me', 'forecast.margin_path.mc']
+    if revenue not in (None, 0) and ebitda is not None:
+        sources.extend(['baseline.revenue', 'baseline.ebitda'])
+    _put(forecast, 'sales_growth', 'forecast.sales_growth', derived,
+         'Each year\'s EBITDA growth times that year\'s EBITDA margin divided by the contribution margin.',
+         sources, filled)
+
+
+def _rolled_sales_growth(ebitda_growth, me, mc, revenue, ebitda):
+    '''Inverse of ``_rolled_ebitda_growth``.
+
+    Without both year-0 levels, every year uses the stored margin.
+    '''
+    if revenue in (None, 0) or ebitda is None:
+        return [rate * me / mc for rate in ebitda_growth]
+    derived = []
+    for rate in ebitda_growth:
+        sales_rate = rate * me / mc
+        derived.append(sales_rate)
+        revenue = revenue * (1.0 + sales_rate)
+        ebitda = ebitda * (1.0 + rate)
+        if revenue != 0:
+            me = ebitda / revenue
+    return derived
+
+
 def _next_sales_growth(forecast, rates, filled):
     margin = forecast.get('margin_path') or {}
     if _missing(margin.get('me')) or _missing(margin.get('mc')) or not _missing(margin.get('gsnext')):
@@ -129,12 +171,13 @@ def _next_sales_growth(forecast, rates, filled):
     sales = _series(forecast.get('sales_growth'))
     if sales:
         _put(margin, 'gsnext', 'forecast.margin_path.gsnext', sales[-1],
-             'Last stated sales growth.', ['forecast.sales_growth'], filled)
+             'Last sales growth.', ['forecast.sales_growth'], filled)
         return
     gt = _number(_val(rates.get('gt')))
     if gt is not None:
         _put(margin, 'gsnext', 'forecast.margin_path.gsnext', gt,
-             'No sales growth was stated, so the next sales growth equals terminal growth.',
+             'No sales growth was stated and EBITDA growth could not be turned into one, '
+             'so the next sales growth equals terminal growth.',
              ['rates.gt'], filled)
 
 
@@ -148,9 +191,13 @@ def _drop_incomplete_margin(forecast, filled):
     growth = forecast.get('ebitda_growth')
     if is_leaf(growth) and 'forecast.margin_path.me' in (growth.get('derived_from') or []):
         forecast.pop('ebitda_growth', None)
+    sales = forecast.get('sales_growth')
+    if is_leaf(sales) and 'forecast.margin_path.me' in (sales.get('derived_from') or []):
+        forecast.pop('sales_growth', None)
     filled[:] = [
         path for path in filled
-        if not path.startswith('forecast.margin_path') and path != 'forecast.ebitda_growth'
+        if not path.startswith('forecast.margin_path')
+        and path not in ('forecast.ebitda_growth', 'forecast.sales_growth')
     ]
 
 

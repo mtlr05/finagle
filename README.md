@@ -262,9 +262,22 @@ Canadian companies use the TSX symbol yfinance knows, such as `ATD.TO`, or `.V` 
 
 yfinance is optional: `pip install -e ".[yahoo]"`. It is unofficial, Yahoo limits its data to personal use, and its row names change, so check figures against a filing when they matter. EBITDA from yfinance is rebuilt as operating income plus D&A plus stock-based compensation, and its `Total Debt` can include leases.
 
-### Connecting Grok
+### Connecting a Bot
 
-If a bot, like GrokBot can clone this repository and run Python, point it at [`AGENTS.md`](AGENTS.md) and give it the article text. Paste the article text instead of a link, because paywalled posts often will not load for the bot. A presentation file, or a presentation URL you supply, is read as an attachment, including its charts.
+If a bot can clone this repository and run Python, point it at [`AGENTS.md`](AGENTS.md). An article is optional. The minimum input is a ticker and one year-1 forecast: sales, sales growth, EBITDA, or EBITDA growth. Year 0 comes from the SEC and then yfinance. One year is enough. Later years fade from that rate toward terminal growth.
+
+[`tests/test_agent_hrow_prompt.py`](tests/test_agent_hrow_prompt.py) runs HROW with no article. Any one of these prompts is enough, and they produce the same valuation. The sales dollars are year-1 sales from the growth prompt, and the EBITDA figures are that same year:
+
+```text
+run in bot mode, ticker: HROW, this year's sales growth forecast 30%
+run in bot mode, ticker: HROW, this year's sales forecast is 353.9939
+run in bot mode, ticker: HROW, this year's EBITDA forecast is 101.8668
+run in bot mode, ticker: HROW, this year's EBITDA growth forecast is 0.6450559565912504
+```
+
+Give the SEC user agent in the prompt, or set `FINAGLE_SEC_USER_AGENT`. For a Canadian company, give the TSX symbol, such as `ATD.TO`.
+
+When you do have an article, paste the text instead of a link, because paywalled posts often will not load for the bot. A presentation file, or a presentation URL you supply, is read as an attachment, including its charts. Attach the company's annual report or 10-K as well when you have it; the agent uses it before the SEC and yfinance.
 
 ```text
 Value the company in the article below using the finagle repo
@@ -275,11 +288,9 @@ Article:
 <paste the article text>
 ```
 
-Attach the company's annual report or 10-K as well when you have it; the agent uses it before the SEC and yfinance. For a Canadian company, give the TSX symbol, such as `ATD.TO`.
-
 Add any assumptions you want held fixed, for example "use a 9% cost of equity and 2% terminal growth unless the article states otherwise". A figure you state outranks the article. Anything you do not state is filled by the defaults above, and what those defaults do not cover is labeled as an assumption. After a run, a follow-up such as "set terminal growth to 2%" is applied with `update_case`, without rereading the documents.
 
-If Grok can only read the repository, or runs somewhere that cannot execute this code, run the MCP server instead. It exposes the same functions as tools, plus the workflow as the `value_from_article` prompt. It needs Python 3.10 or later:
+If the bot can only read the repository, or runs somewhere that cannot execute this code, run the MCP server instead. It exposes the same functions as tools, plus the workflow as the `value_from_article` prompt. It needs Python 3.10 or later:
 
 ```bash
 pip install -e ".[agent,yahoo]"

@@ -16,7 +16,7 @@ from finagle.company import company
 _LOCK = threading.Lock()
 
 _YEAR_COLUMNS = (
-    'ebitda', 'capex', 'MnA', 'dDebt', 'fcf', 'fcfe', 'fcff', 'debt', 'cash',
+    'revenue', 'ebitda', 'capex', 'MnA', 'dDebt', 'fcf', 'fcfe', 'fcff', 'debt', 'cash',
     'cashBS', 'shares', 'price', 'dividend', 'equity', 'firm',
 )
 

@@ -6,7 +6,10 @@ import sys
 import pandas as pd
 import pytest
 
-from finagle.agent import apply_defaults, build_baseline, read_pdf, update_case, validate_case, yahoo_baseline
+from finagle.agent import (
+    apply_defaults, build_baseline, compile_case, read_pdf, update_case,
+    validate_case, yahoo_baseline,
+)
 from finagle.agent.schema import leaf
 
 ROOT = os.path.dirname(os.path.dirname(__file__))
@@ -495,6 +498,68 @@ def test_sales_growth_rolls_the_margin_and_keeps_year_zero_me():
     }, run=False)
     assert revised['case']['forecast']['margin_path']['me']['value'] == pytest.approx(0.25)
     assert revised['case']['forecast']['ebitda_growth']['value'] == pytest.approx([0.15])
+
+
+def test_ebitda_growth_fades_like_the_sales_rate_that_produced_it():
+    '''A stated EBITDA growth rate implies the sales path, so the fade matches.'''
+    def case(forecast):
+        forecast = dict(forecast)
+        forecast['ebitda_basis'] = leaf('organic', 'assumption', 'organic')
+        forecast['dwc'] = {'mode': leaf('zero', 'assumption', 'no working-capital change')}
+        return {
+            'path': 'ebitda',
+            'ticker': 'FADE',
+            'year': 4,
+            'market': {'shares': leaf(10, 'assumption', 'shares')},
+            'rates': {
+                're': leaf(0.10, 'assumption', 'cost of equity'),
+                'rd': leaf(0.05, 'assumption', 'cost of debt'),
+                't': leaf(0.21, 'assumption', 'tax rate'),
+                'gt': leaf(0.02, 'assumption', 'terminal growth'),
+                'roict': leaf(0.15, 'assumption', 'terminal ROIC'),
+            },
+            'baseline': {
+                'date': leaf('2025-12-31', 'assumption', 'year 0'),
+                'revenue': leaf(400, 'assumption', 'revenue'),
+                'ebitda': leaf(100, 'assumption', 'ebitda'),
+                'gross_margin': leaf(0.50, 'assumption', 'gross margin'),
+                'capex': leaf(1, 'assumption', 'capex'),
+                'da': leaf(1, 'assumption', 'da'),
+                'tax': leaf(1, 'assumption', 'tax'),
+                'interest': leaf(1, 'assumption', 'interest'),
+                'sbc': leaf(0, 'assumption', 'sbc'),
+                'debt': leaf(5, 'assumption', 'debt'),
+                'cash': leaf(2, 'assumption', 'cash'),
+                'nol': leaf(0, 'assumption', 'nol'),
+                'noa': leaf(0, 'assumption', 'noa'),
+            },
+            'forecast': forecast,
+            'debt': {'mode': leaf('hold', 'assumption', 'hold year-0 debt')},
+            'distribution': {'mode': leaf('none', 'assumption', 'pay out free cash flow')},
+        }
+
+    sales = case({'sales_growth': leaf([0.30], 'prompt', 'sales growth 30 percent')})
+    apply_defaults(sales, fetch_yield=False)
+    ebitda_rate = sales['forecast']['ebitda_growth']['value']
+
+    ebitda = case({
+        'ebitda_growth': leaf(list(ebitda_rate), 'prompt', 'EBITDA growth from 30 percent sales'),
+    })
+    apply_defaults(ebitda, fetch_yield=False)
+
+    assert ebitda['forecast']['sales_growth']['source'] == 'assumption'
+    assert ebitda['forecast']['sales_growth']['value'] == pytest.approx([0.30])
+    assert ebitda['forecast']['margin_path']['gsnext']['value'] == pytest.approx(0.30)
+    assert sales['forecast']['margin_path']['gsnext']['value'] == pytest.approx(0.30)
+
+    def forecast_args(item):
+        step = next(row for row in compile_case(item)['steps'] if row['method'] == 'forecast_ebitda')
+        return step['args']
+
+    sales_args = forecast_args(sales)
+    stated_args = forecast_args(ebitda)
+    for key in ('gf', 'me', 'mc', 'gsnext'):
+        assert stated_args[key] == pytest.approx(sales_args[key])
 
 
 def test_update_recomputes_a_derived_margin_without_reading_sources(monkeypatch):
