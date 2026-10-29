@@ -244,8 +244,9 @@ def build_baseline(ticker, article=None, attachment=None, attachments=None,
         'layers': layers,
         'note': (
             'Year 0 is the fiscal year ending %s. case holds the merged leaves and the '
-            'computed assumptions. Copy it, fill what is still missing, then validate_case. '
-            'nol and noa are never in the data feeds.' % period
+            'computed assumptions. nol and noa are never in the data feeds, so an '
+            'unstated balance is a zero assumption. validate_case still lists anything '
+            'a source did not supply and the defaults could not fill.' % period
         ),
     }
 

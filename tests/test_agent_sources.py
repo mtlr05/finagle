@@ -148,7 +148,15 @@ def test_each_field_comes_from_the_first_source_that_has_it(sec):
     assert result['baseline']['ebitda']['value'] == 240.0
     assert result['baseline']['capex']['value'] == 36.0
     assert result['baseline']['interest']['value'] == 25.0
-    assert result['missing'] == ['nol', 'noa']
+    assert result['missing'] == []
+    assert result['baseline']['nol']['value'] == 0
+    assert result['baseline']['nol']['source'] == 'assumption'
+    assert result['baseline']['noa']['source'] == 'assumption'
+    assert result['case']['year'] == 10
+    assert result['rates']['t']['value'] == 0.21
+    assert result['rates']['rd']['value'] == pytest.approx(25.0 / 410.0)
+    assert result['forecast']['dwc']['mode']['value'] == 'zero'
+    assert result['distribution']['mode']['value'] == 'none'
     assert [status['status'] for status in result['layers'].values()] == ['used'] * 4
     assert list(result['layers']) == ['article', 'attachment', '10k', 'yahoo']
     assert sec.calls == [('XMPL', FY23)]
@@ -326,6 +334,42 @@ def test_yahoo_baseline_maps_annual_rows():
     assert leaves['debt']['currency'] == 'USD'
     assert result['shares']['value'] == 52.0
     assert result['price']['value'] == 44.0
+
+
+def test_blank_interest_expense_uses_signed_net_interest_income():
+    yahoo = FakeYahoo()
+    ticker = yahoo('XMPL')
+    ticker.income_stmt.loc['Interest Expense', :] = float('nan')
+    ticker.income_stmt.loc['Net Interest Income', pd.Timestamp(FY23)] = -1.165e6
+    ticker.income_stmt.loc['Net Interest Income', pd.Timestamp(FY22)] = 0.330e6
+
+    def client(symbol):
+        return ticker
+
+    latest = yahoo_baseline('XMPL', client=client)
+    assert latest['baseline']['interest']['value'] == pytest.approx(1.165)
+    assert latest['baseline']['interest']['evidence'] == 'Net Interest Income'
+    assert 'sign flipped' in latest['baseline']['interest']['note']
+
+    prior = yahoo_baseline('XMPL', period_end=FY22, client=client)
+    assert prior['baseline']['interest']['value'] == pytest.approx(-0.330)
+
+
+def test_a_stated_tax_rate_is_not_replaced(sec):
+    result = build_baseline(
+        'XMPL',
+        prompt={'rates': {'t': leaf(0.265, 'prompt', 'statutory 26.5 percent')}},
+        user_agent=UA,
+        yahoo_client=FakeYahoo(),
+    )
+    assert result['rates']['t']['value'] == 0.265
+    assert result['rates']['t']['source'] == 'prompt'
+
+
+def test_cost_of_debt_stays_empty_when_debt_is_zero():
+    case = {'baseline': _stated('article', interest=1.2, debt=0)}
+    apply_defaults(case, fetch_yield=False)
+    assert 'rd' not in case['rates']
 
 
 def test_yahoo_baseline_falls_back_and_marks_missing_rows():
