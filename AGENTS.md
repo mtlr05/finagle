@@ -88,3 +88,15 @@ Use `--transport streamable-http` for a remote client.
 ## Tests
 
 `pytest` from the repository root. CI runs Python 3.9.12. The MCP tests are skipped when `mcp` is not installed. The source tests use fake SEC and yfinance clients and need no network.
+
+## Collaborative request
+
+The article workflow above is unchanged. This section applies only when the request has `"mode": "collaborative"`, or the user asked for a joint valuation with a Forecaster operating path.
+
+- The inputs are the Forecaster's sales growth, EBITDA growth, `me`, `mc`, `gsnext`, EBITDA basis, and any acquisitions in the forecast, plus `prompt_inputs`. `prompt_inputs` are only leaves the user stated, as explicit values, with the user's words and date. Source is `prompt`.
+- Do not treat the request as an article valuation. Do not fill a leaf from a PDF or from a default when the request already has it.
+- `build_baseline` still supplies price, shares, the risk-free rate, the cost of equity, terminal growth, and the year-0 figures, unless a `prompt_inputs` item states one.
+- Apply the request with `update_case` after `build_baseline`. Forecaster leaves first, then `prompt_inputs`. `build_baseline` drops a prompt leaf that has no fiscal-year basis, so these leaves go on afterwards.
+- Report every leaf filled by default (`source` `assumption`). Do not apply a post-run factor. Do not write the company report. The Forecaster does that from the result file.
+- A Grok Bot fast-forwards its own clone to `origin/main` before the run and records the commit. If the fast-forward fails, stop. Do not reset. A Cursor session does not pull. It uses the checkout it was given and records that commit.
+- Do not invent a stock-comp path, a debt policy, a tax rate, or a similar rule. If the user stated a formula rather than numbers, the coordinator turns it into explicit values before the run. A full list whose source is `assumption` is cut back to year 0, so a list the user stated uses source `prompt`.
