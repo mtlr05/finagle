@@ -30,6 +30,9 @@ _ROWS = {
     'debt': ('Total Debt',),
     'cash': ('Cash Cash Equivalents And Short Term Investments', 'Cash And Cash Equivalents'),
 }
+# Some filers leave the gross expense rows as NaN and report a signed net
+# amount. Negative net interest income is an expense.
+_NET_INTEREST = ('Net Interest Income', 'Net Non Operating Interest Income Expense')
 _POSITIVE = ('capex', 'interest')
 _NOTES = {
     'capex': 'Positive cash outflow.',
@@ -139,13 +142,16 @@ def _leaves(frames, period_end, currency):
         },
     }
     for key in ('revenue', 'capex', 'da', 'tax', 'interest', 'sbc', 'debt', 'cash'):
-        row, raw = found[key]
+        if key == 'interest':
+            row, raw, note = _interest_raw(frames, period_end)
+        else:
+            row, raw = found[key]
+            note = _NOTES.get(key, '')
+            if raw is None:
+                note = 'Yahoo has no %s row for this year.' % ' / '.join(_ROWS[key])
         value = None if raw is None else raw / _SCALE
-        if value is not None and key in _POSITIVE:
+        if value is not None and key in _POSITIVE and key != 'interest':
             value = abs(value)
-        note = _NOTES.get(key, '')
-        if raw is None:
-            note = 'Yahoo has no %s row for this year.' % ' / '.join(_ROWS[key])
         leaves[key] = _leaf(value, row or _ROWS[key][0], period_end, currency, note)
 
     leaves['ebitda'] = _ebitda(found, period_end, currency)
@@ -342,6 +348,27 @@ def _fx_rate(client, pair):
     if closes.empty:
         return None, None, 'no %s history' % pair
     return float(closes.iloc[-1]), _date_text(closes.index[-1]), None
+
+
+def _interest_raw(frames, period_end):
+    '''Year-0 interest expense in Yahoo's raw dollars.
+
+    Gross ``Interest Expense`` wins. When that row is missing or NaN, the
+    signed net interest income is flipped so an expense stays positive.
+    '''
+    row, raw = _lookup(frames, _ROWS['interest'], period_end)
+    if raw is not None:
+        return row, abs(raw), _NOTES['interest']
+    row, raw = _lookup(frames, _NET_INTEREST, period_end)
+    if raw is not None:
+        return row, -raw, (
+            'Interest Expense was blank. Net interest income, with the sign '
+            'flipped so an expense is positive.'
+        )
+    return None, None, (
+        'Yahoo has no %s / %s row for this year.'
+        % (' / '.join(_ROWS['interest']), ' / '.join(_NET_INTEREST))
+    )
 
 
 def _lookup(frames, names, period_end):

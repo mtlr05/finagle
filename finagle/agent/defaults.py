@@ -35,6 +35,7 @@ def apply_defaults(case, currency=None, yahoo_client=None, fetch_yield=True):
     _next_sales_growth(forecast, rates, filled)
     _drop_incomplete_margin(forecast, filled)
     _leverage(baseline, debt, filled)
+    _unstated_policies(case, baseline, forecast, rates, distribution, filled)
     _buyback_price_path(distribution, filled)
     _drop_empty(case, ('forecast', 'debt', 'distribution', 'rates', 'baseline'))
     return {'filled': filled, 'warnings': warnings}
@@ -219,6 +220,48 @@ def _leverage(baseline, debt, filled):
     if _missing(debt.get('start_year')):
         _put(debt, 'start_year', 'debt.start_year', 1,
              'The target applies from the first forecast year.', [], filled)
+
+
+def _unstated_policies(case, baseline, forecast, rates, distribution, filled):
+    '''Assumptions the article workflow uses after every source is silent.
+
+    A leaf that already has a value is left alone, so a prompt, an article,
+    or a filing still wins.
+    '''
+    if _year_missing(case.get('year')):
+        case['year'] = 10
+        filled.append('year')
+    if _missing(baseline.get('nol')):
+        _put(baseline, 'nol', 'baseline.nol', 0,
+             'No net operating loss was stated.', [], filled)
+    if _missing(baseline.get('noa')):
+        _put(baseline, 'noa', 'baseline.noa', 0,
+             'No non-operating assets were stated.', [], filled)
+    if _missing(rates.get('t')):
+        _put(rates, 't', 'rates.t', 0.21,
+             'US federal statutory tax rate. No marginal rate was stated.', [], filled)
+    if _missing(rates.get('rd')):
+        interest = _number(_val(baseline.get('interest')))
+        balance = _number(_val(baseline.get('debt')))
+        if interest is not None and balance not in (None, 0):
+            _put(rates, 'rd', 'rates.rd', interest / balance,
+                 'Year-0 interest divided by year-0 debt.',
+                 ['baseline.interest', 'baseline.debt'], filled)
+    dwc = forecast.setdefault('dwc', {})
+    if _missing(dwc.get('mode')):
+        _put(dwc, 'mode', 'forecast.dwc.mode', 'zero',
+             'No working-capital change was stated.', [], filled)
+    if _missing(distribution.get('mode')):
+        _put(distribution, 'mode', 'distribution.mode', 'none',
+             'No distribution was stated.', [], filled)
+
+
+def _year_missing(year):
+    if isinstance(year, bool) or not isinstance(year, (int, float)):
+        return True
+    if isinstance(year, float) and not year.is_integer():
+        return True
+    return int(year) < 1
 
 
 def _buyback_price_path(distribution, filled):

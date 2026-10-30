@@ -43,10 +43,14 @@ When no source states them, `build_baseline` fills:
 - The price is the last trading day's close, in the reporting currency.
 - With no debt policy, the target Debt/EBITDA is the year-0 ratio, starting in year 1.
 - A buyback uses a proportional price path.
+- `year` = 10.
+- `t` = 0.21, the US federal statutory rate.
+- `rd` = year-0 interest / year-0 debt, when debt is not zero. A blank Yahoo `Interest Expense` uses signed net interest income, flipped so an expense is positive.
+- `nol` = 0 and `noa` = 0. Neither is in the SEC or yfinance feeds.
+- Working capital does not change (`forecast.dwc.mode` = `zero`).
+- Distribution mode is `none` (free cash flow to equity is paid out, with no buybacks).
 
 When no source states a capex or stock-based-compensation path, leave `forecast.capex` and `forecast.sbc` unset. Do not repeat the year-0 amount across the horizon. `run_case` then calls `forecast_sbc` and `forecast_capex`. If a case still assumes a full capex or SBC path, or repeats the year-0 amount, `run_case` cuts it back to year 0, warns, and runs `forecast_capex` and `forecast_sbc`. When revenue is forecast, capex method 1 keeps the last supplied depreciation-to-revenue ratio, solves terminal capex from the ROIC identity, and bridges the open years with revenue. Otherwise capex holds the last capex-to-EBITDA ratio. SBC holds the last SBC-to-EBITDA ratio unless a terminal rate is set. A stated path is still a short or full list, and a full list is kept.
-
-Cost of debt, the tax rate, working capital, net operating losses, non-operating assets, and the distribution mode are still for you to fill.
 
 ## A follow-up
 
@@ -95,8 +99,8 @@ The article workflow above is unchanged. This section applies only when the requ
 
 - The inputs are the Forecaster's sales growth, EBITDA growth, `me`, `mc`, `gsnext`, EBITDA basis, and any acquisitions in the forecast, plus `prompt_inputs`. `prompt_inputs` are only leaves the user stated, as explicit values, with the user's words and date. Source is `prompt`.
 - Do not treat the request as an article valuation. Do not fill a leaf from a PDF or from a default when the request already has it.
-- `build_baseline` still supplies price, shares, the risk-free rate, the cost of equity, terminal growth, and the year-0 figures, unless a `prompt_inputs` item states one.
+- `build_baseline` still supplies price, shares, the risk-free rate, the cost of equity, terminal growth, the year-0 figures, and the unstated assumptions in Defaults (horizon, tax rate, cost of debt, tax losses, non-operating assets, working capital, distribution, and the debt target), unless a `prompt_inputs` item states one.
 - Apply the request with `update_case` after `build_baseline`. Forecaster leaves first, then `prompt_inputs`. `build_baseline` drops a prompt leaf that has no fiscal-year basis, so these leaves go on afterwards.
 - Report every leaf filled by default (`source` `assumption`). Do not apply a post-run factor. Do not write the company report. The Forecaster does that from the result file.
 - A Grok Bot fast-forwards its own clone to `origin/main` before the run and records the commit. If the fast-forward fails, stop. Do not reset. A Cursor session does not pull. It uses the checkout it was given and records that commit.
-- Do not invent a stock-comp path, a debt policy, a tax rate, or a similar rule. If the user stated a formula rather than numbers, the coordinator turns it into explicit values before the run. A full list whose source is `assumption` is cut back to year 0, so a list the user stated uses source `prompt`.
+- Do not invent a stock-comp path, and do not replace those labeled defaults with a different horizon, tax rate, cost of debt, working-capital rule, or payout rule. If the user stated a formula rather than numbers, the coordinator turns it into explicit values before the run. A full list whose source is `assumption` is cut back to year 0, so a list the user stated uses source `prompt`.
