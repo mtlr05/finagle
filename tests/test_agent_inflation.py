@@ -52,7 +52,7 @@ def test_a_fetch_exception_is_an_error():
 
 
 def test_defaults_fill_lam_and_inflation_from_the_client():
-    case = {'baseline': {}, 'rates': {}}
+    case = {'baseline': {}, 'rates': {'risk_free': leaf(0.045, 'prompt', 'stated yield')}}
 
     def fetch(url):
         assert 'T10YIE' in url
@@ -69,7 +69,7 @@ def test_defaults_fill_lam_and_inflation_from_the_client():
 
 
 def test_inflation_falls_back_to_two_percent_when_the_client_fails():
-    case = {'rates': {}}
+    case = {'rates': {'risk_free': leaf(0.045, 'prompt', 'stated yield')}}
 
     def broken(url):
         raise OSError('down')
