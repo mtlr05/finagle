@@ -15,7 +15,8 @@ permissions:
 jobs:
   build:
 
-    runs-on: ubuntu-latest
+    # Python 3.9 builds stop at Ubuntu 24.04; ubuntu-latest has none.
+    runs-on: ubuntu-24.04
 
     steps:
     - uses: actions/checkout@v4
