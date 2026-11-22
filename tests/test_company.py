@@ -498,3 +498,87 @@ def test_terminal_sbc_uses_the_stored_forecast():
     assert 'forecast_sbc has not run' not in _read_log('SBC2')
     os.remove('SBC1.log')
     os.remove('SBC2.log')
+
+
+def _bradley_jarrell_capex(financials, year, gt, roict, t, lam, inflation):
+    b = (gt - lam * inflation) / (roict - lam * inflation)
+    C = b * (1 - t)
+    da_t = 12 / 220 * financials['revenue'][year]
+    return da_t * (1 - C) - financials['dwc'][year] + C * (financials['ebitda'][year] - 5)
+
+
+def test_lam_zero_matches_the_current_capex_including_the_default_inflation():
+    year = 4
+    financials = _statements(year)
+    plain = _capex_model('LAM0A', year).forecast_capex(financials['capex'], financials)
+    with_inflation = _capex_model('LAM0B', year).forecast_capex(
+        financials['capex'], financials, lam=0, inflation=0.05)
+    default_inflation = _capex_model('LAM0C', year).forecast_capex(
+        financials['capex'], financials, lam=0)
+    assert with_inflation == pytest.approx(plain)
+    assert default_inflation == pytest.approx(plain)
+    os.remove('LAM0A.log')
+    os.remove('LAM0B.log')
+    os.remove('LAM0C.log')
+
+
+def test_lam_one_is_the_bradley_jarrell_rate_and_defaults_inflation_to_two_percent():
+    year = 4
+    gt, roict, t = 0.04, 0.20, 0.25
+    financials = _statements(year)
+    company = _capex_model('BJ1', year, gt=gt, roict=roict, t=t)
+    capex = company.forecast_capex(financials['capex'], financials, lam=1, inflation=0.03)
+    expected = _bradley_jarrell_capex(financials, year, gt, roict, t, 1, 0.03)
+    assert capex[-1] == pytest.approx(expected)
+
+    implied = _capex_model('BJ0', year, gt=gt, roict=roict, t=t)
+    at_default = implied.forecast_capex(financials['capex'], financials, lam=1)
+    at_two = _capex_model('BJ2', year, gt=gt, roict=roict, t=t).forecast_capex(
+        financials['capex'], financials, lam=1, inflation=0.02)
+    assert at_default[-1] == pytest.approx(at_two[-1])
+    assert at_default[-1] != pytest.approx(capex[-1])
+    os.remove('BJ1.log')
+    os.remove('BJ0.log')
+    os.remove('BJ2.log')
+
+
+def test_terminal_depreciation_matches_method_1_when_lam_is_not_zero():
+    year = 4
+    gt, roict, t, lam, inflation = 0.04, 0.20, 0.25, 0.5, 0.03
+    financials = _statements(year)
+    company = _capex_model('DAT', year, gt=gt, roict=roict, t=t)
+    company.forecast_capex(
+        financials['capex'], financials, lam=lam, inflation=inflation)
+    company.load_financials(financials.copy())
+    company.fcf_from_ebitda()
+    da_t = 12 / 220 * financials['revenue'][year]
+    assert company.fin['da'].iloc[-1] == pytest.approx(da_t)
+    os.remove('DAT.log')
+
+
+def test_method_2_changes_terminal_depreciation_and_not_the_capex_path():
+    year = 4
+    financials = _statements(year)
+    financials['capex'] = [20, 22]
+    plain = _capex_model('M2A', year, gt=0.04)
+    passed = _capex_model('M2B', year, gt=0.04)
+    capex_plain = plain.forecast_capex(financials['capex'], financials, method=2, lam=0)
+    capex_passed = passed.forecast_capex(
+        financials['capex'], financials, method=2, lam=1, inflation=0.03)
+    assert capex_passed == pytest.approx(capex_plain)
+    for company in (plain, passed):
+        company.load_financials(copy.deepcopy(financials))
+        company.fcf_from_ebitda()
+    assert passed.fin['da'].iloc[-1] != pytest.approx(plain.fin['da'].iloc[-1])
+    os.remove('M2A.log')
+    os.remove('M2B.log')
+
+
+def test_reinvestment_rate_errors_when_roict_does_not_exceed_the_inflation_offset():
+    year = 4
+    financials = _statements(year)
+    company = _capex_model('BADR', year, roict=0.20)
+    assert company.forecast_capex(
+        financials['capex'], financials, lam=1, inflation=0.25) is None
+    assert 'not positive' in _read_log('BADR')
+    os.remove('BADR.log')

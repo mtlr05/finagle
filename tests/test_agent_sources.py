@@ -17,6 +17,24 @@ FY23 = '2023-12-31'
 FY22 = '2022-12-31'
 UA = 'Name you@example.com'
 
+
+@pytest.fixture(autouse=True)
+def _offline_inflation(monkeypatch):
+    '''Keep these merges off the network. Inflation tests live in their own file.'''
+    def fake(currency, fetch=None):
+        return {
+            'ok': True,
+            'value': 0.02,
+            'leaf': {
+                'value': 0.02,
+                'source': 'fred',
+                'evidence': 'test inflation',
+                'as_of': '2026-01-01',
+            },
+        }
+
+    monkeypatch.setattr('finagle.agent.defaults.expected_inflation', fake)
+
 YAHOO_ROWS = {
     FY23: {
         'Total Revenue': 1300e6, 'Operating Income': 200e6, 'Tax Provision': 40e6,

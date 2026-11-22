@@ -77,7 +77,9 @@ class company:
         price (float): current share price
         gt (float): terminal growth, required for model closure
         roict (float): terminal return on invested capital, used for
-        calculating depreciation
+        calculating depreciation and, with forecast_capex, terminal capex.
+        The reinvestment rate is (gt - lam * inflation) / (roict - lam * inflation).
+        lam of 0 is gt/roict. lam of 1 is the Bradley-Jarrell rate.
         year (int): final forecast year. Year before the terminal year.
         fcfe (list,None): free cash flow to equity
         fcff (list,None): free cash flow to firm
@@ -135,6 +137,8 @@ class company:
         self.t = t
         self.te = te
         self.roict = roict
+        # lam, inflation. lam of 0 leaves the reinvestment rate at gt/roict.
+        self._reinvest = (0.0, 0.02)
         self.shares = shares
         self.price = price
         self.year = year
@@ -590,7 +594,29 @@ class company:
 
         return ebitda
 
-    def forecast_capex(self, capex_f, financials, method=None):
+    def _reinvestment_ratio(self):
+        '''After-tax net investment as a fraction of after-tax operating profit.
+
+        ``b = (gt - lam * inflation) / (roict - lam * inflation)`` and
+        ``C = b * (1 - t)``. ``lam`` of 0 is ``gt / roict``. ``lam`` of 1 is
+        the Bradley-Jarrell rate. Returns None when the denominator is not
+        positive, after logging an error.
+        '''
+        lam, inflation = getattr(self, '_reinvest', (0.0, 0.02))
+        offset = lam * inflation
+        denom = self.roict - offset
+        if denom is None or not np.isfinite(denom) or denom <= 0:
+            self.log.error(
+                'roict minus the inflation offset is not positive; '
+                'cannot calculate the reinvestment rate')
+            return None
+        if self.gt < offset:
+            self.log.warning(
+                'terminal growth is below the inflation offset, '
+                'so net investment is negative')
+        return (self.gt - offset) / denom * (1 - self.t)
+
+    def forecast_capex(self, capex_f, financials, method=None, lam=0, inflation=0.02):
         '''creates a capital expenditures (capex) forecast and stores it on
         the instance.
 
@@ -602,14 +628,33 @@ class company:
         holds the last capex-to-EBITDA ratio. The caller's dictionary is not
         modified.
 
+        The identity uses ``b = (gt - lam * inflation) / (roict - lam * inflation)``.
+        ``lam`` of 0, the default, is ``gt / roict`` and ignores inflation.
+        ``lam`` of 1 is the Bradley-Jarrell rate. ``inflation`` defaults to 0.02.
+        The same pair is stored for the terminal depreciation plug.
+
         Args:
             capex_f:
             financials:
             method: 1, 2, or None for the default above
+            lam: inflation pass-through, from 0 to 1
+            inflation: expected inflation, as a decimal
 
         Returns:
             capex:
         '''
+        try:
+            lam = float(lam)
+            inflation = float(inflation)
+        except (TypeError, ValueError):
+            self.log.error('forecast_capex lam and inflation must be numbers')
+            return None
+        if not np.isfinite(lam) or not np.isfinite(inflation) or lam < 0 or lam > 1:
+            self.log.error(
+                'forecast_capex lam must be from 0 to 1 and inflation must be a finite number')
+            return None
+        self._reinvest = (lam, inflation)
+
         _values, length = self._prefixed_series(capex_f)
         if length <= 0:
             self.log.error('capex forecast is empty')
@@ -632,7 +677,8 @@ class company:
                     'forecast_capex method 1 needs revenue that is non-zero '
                     'at the last supplied depreciation year and at the terminal year')
                 return None
-            return self._forecast_capex_from_revenue(capex_f, financials)
+            return self._forecast_capex_from_revenue(
+                capex_f, financials, lam=lam, inflation=inflation)
         if method == 2:
             return self._forecast_capex_at_ebitda_ratio(capex_f, financials)
         self.log.error('forecast_capex method must be 1 or 2')
@@ -662,7 +708,24 @@ class company:
 
         return capex
 
-    def _forecast_capex_from_revenue(self, capex_f, financials):
+    def _forecast_capex_from_revenue(self, capex_f, financials, lam=0, inflation=0.02):
+        '''Terminal capex from the depreciation-to-revenue ratio and the ROIC identity.
+
+        ``lam`` and ``inflation`` are stored for the depreciation plug. ``lam``
+        of 0 keeps ``gt / roict``. ``lam`` of 1 is the Bradley-Jarrell rate.
+        '''
+        try:
+            lam = float(lam)
+            inflation = float(inflation)
+        except (TypeError, ValueError):
+            self.log.error('forecast_capex lam and inflation must be numbers')
+            return None
+        if not np.isfinite(lam) or not np.isfinite(inflation) or lam < 0 or lam > 1:
+            self.log.error(
+                'forecast_capex lam must be from 0 to 1 and inflation must be a finite number')
+            return None
+        self._reinvest = (lam, inflation)
+
         values, length = self._prefixed_series(capex_f)
         capex = list(values[:length])
         ebitda = list(self._ebitda_series(financials))
@@ -684,7 +747,9 @@ class company:
                 'forecast_capex method 1 needs terminal stock-based compensation and working capital')
             return None
 
-        C = self.gt / self.roict * (1 - self.t)
+        C = self._reinvestment_ratio()
+        if C is None:
+            return None
         if C >= 1:
             self.log.warning(
                 'terminal reinvestment ratio is at least 1, so the depreciation plug is unstable; check roict and growth')
@@ -885,9 +950,13 @@ class company:
         
         # Terminal depreciation is the plug that makes net investment match
         # growth and ROIC in the last explicit year:
-        # capex + dwc - DA = (gt / roict) * (EBITDA - SBC - DA) * (1 - t)
+        # capex + dwc - DA = b * (EBITDA - SBC - DA) * (1 - t)
+        # b = (gt - lam * inflation) / (roict - lam * inflation)
+        # lam of 0 is gt/roict. The pair is the one forecast_capex stored.
 
-        C = self.gt/self.roict*(1-self.t)
+        C = self._reinvestment_ratio()
+        if C is None:
+            return
         ebitda_ex_sbc = self.fin['ebitda'].iloc[-1] - self.fin['sbc'].iloc[-1]
         dat = (self.fin['capex'].iloc[-1] + self.fin['dwc'].iloc[-1] - C * ebitda_ex_sbc)/(1 - C)
         if dat < 0:

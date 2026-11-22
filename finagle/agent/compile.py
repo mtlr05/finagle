@@ -140,6 +140,12 @@ def _is_number(value):
     return isinstance(value, (int, float)) and not isinstance(value, bool)
 
 
+def _passthrough_needed(data):
+    '''A full capex list still has to store a non-zero pass-through for the plug.'''
+    lam = (data.get('rates') or {}).get('lam')
+    return _is_number(lam) and float(lam) != 0.0
+
+
 def _capex_method(baseline, forecast, year, revenue, forecast_ebitda):
     '''1 when terminal capex can follow revenue, otherwise 2.
 
@@ -309,14 +315,20 @@ def _compile_ebitda(data):
             'args': args,
             'pass_financials': True,
         })
-    if forecast_capex:
+    if forecast_capex or _passthrough_needed(data):
+        capex_args = {
+            'capex_f': list(capex_series),
+            'method': _capex_method(
+                baseline, forecast, year, financials['revenue'], forecast_ebitda),
+        }
+        rates = data.get('rates') or {}
+        if rates.get('lam') is not None:
+            capex_args['lam'] = rates['lam']
+        if rates.get('inflation') is not None:
+            capex_args['inflation'] = rates['inflation']
         steps.append({
             'method': 'forecast_capex',
-            'args': {
-                'capex_f': list(capex_series),
-                'method': _capex_method(
-                    baseline, forecast, year, financials['revenue'], forecast_ebitda),
-            },
+            'args': capex_args,
             'pass_financials': True,
         })
 

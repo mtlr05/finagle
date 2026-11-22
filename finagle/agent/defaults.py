@@ -5,18 +5,24 @@ Each fill is an assumption whose evidence is the formula and whose
 recompute it. A leaf that already has a value is left alone.
 '''
 
+from finagle.agent.inflation import expected_inflation
 from finagle.agent.schema import is_leaf, leaf
 from finagle.agent.yahoo import risk_free_rate
 
 EQUITY_PREMIUM = 0.055
 ROICT = 0.15
+INFLATION_PASSTHROUGH = 0.25
+INFLATION = 0.02
 
 
-def apply_defaults(case, currency=None, yahoo_client=None, fetch_yield=True):
+def apply_defaults(case, currency=None, yahoo_client=None, fetch_yield=True,
+                   inflation_client=None):
     '''Fill the gaps in ``case``. Returns the paths filled and any warnings.
 
     ``fetch_yield`` loads the 10-year yield when ``rates.risk_free`` is
-    missing. An update passes false and uses the yield already stored.
+    missing, and expected inflation when ``rates.inflation`` is missing.
+    An update passes false and uses the figures already stored.
+    ``inflation_client`` is a callable from a URL to response text.
     '''
     if not isinstance(case, dict):
         raise ValueError('case must be an object')
@@ -29,7 +35,8 @@ def apply_defaults(case, currency=None, yahoo_client=None, fetch_yield=True):
     distribution = case.setdefault('distribution', {})
 
     _margins(baseline, forecast, filled)
-    _yield_and_rates(rates, currency, yahoo_client, fetch_yield, filled, warnings)
+    _yield_and_rates(
+        rates, currency, yahoo_client, fetch_yield, inflation_client, filled, warnings)
     _sales_growth(baseline, forecast, filled)
     _sales_from_ebitda(baseline, forecast, filled)
     _next_sales_growth(forecast, rates, filled)
@@ -62,7 +69,7 @@ def _margins(baseline, forecast, filled):
                  ['forecast.margin_path.me', 'baseline.gross_margin'], filled)
 
 
-def _yield_and_rates(rates, currency, yahoo_client, fetch_yield, filled, warnings):
+def _yield_and_rates(rates, currency, yahoo_client, fetch_yield, inflation_client, filled, warnings):
     if fetch_yield and _missing(rates.get('risk_free')) and currency:
         try:
             quote = risk_free_rate(currency, client=yahoo_client)
@@ -84,6 +91,27 @@ def _yield_and_rates(rates, currency, yahoo_client, fetch_yield, filled, warning
     if _missing(rates.get('roict')):
         _put(rates, 'roict', 'rates.roict', ROICT,
              'Terminal ROIC of 15 percent.', [], filled)
+    if fetch_yield and _missing(rates.get('inflation')) and currency:
+        try:
+            quote = expected_inflation(currency, fetch=inflation_client)
+        except Exception as exc:
+            warnings.append(
+                'Expected inflation could not be loaded: %s: %s' % (type(exc).__name__, exc)
+            )
+            quote = None
+        if quote and quote.get('ok'):
+            rates['inflation'] = quote['leaf']
+            filled.append('rates.inflation')
+        elif quote:
+            warnings.append(quote['error'])
+    if _missing(rates.get('inflation')):
+        _put(rates, 'inflation', 'rates.inflation', INFLATION,
+             'Expected inflation could not be loaded; 2 percent, the common central-bank target.',
+             [], filled)
+    if _missing(rates.get('lam')):
+        _put(rates, 'lam', 'rates.lam', INFLATION_PASSTHROUGH,
+             'Partial inflation pass-through; 0 is g/ROIC, 1 is Bradley-Jarrell.',
+             [], filled)
 
 
 def _sales_growth(baseline, forecast, filled):

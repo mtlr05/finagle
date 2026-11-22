@@ -25,7 +25,7 @@ _OPTIONAL = ('gross_margin',)
 _UNITLESS = ('date', 'ebitda_definition', 'gross_margin')
 _NO_MATCH = 10 ** 6
 _NESTED = ('baseline', 'market', 'rates', 'forecast', 'debt', 'distribution', 'leaves', 'name')
-_RATE_FIELDS = ('re', 'rd', 't', 'te', 'gt', 'roict', 'risk_free')
+_RATE_FIELDS = ('re', 'rd', 't', 'te', 'gt', 'roict', 'risk_free', 'inflation', 'lam')
 _DEBT_FIELDS = ('mode', 'leverage', 'start_year', 'values')
 _DISTRIBUTION_FIELDS = ('mode', 'schedule', 'price', 'price_path')
 _FORECAST_FIELDS = ('ebitda_growth', 'sales_growth', 'ebitda', 'capex', 'sbc', 'sbc_rate_terminal')
@@ -33,7 +33,7 @@ _FORECAST_FIELDS = ('ebitda_growth', 'sales_growth', 'ebitda', 'capex', 'sbc', '
 
 def build_baseline(ticker, article=None, attachment=None, attachments=None,
                    prompt=None, user_agent=None, country=None, period_end=None,
-                   yahoo_client=None, documents=None):
+                   yahoo_client=None, documents=None, inflation_client=None):
     '''Merge inputs, then fill the remaining default assumptions.
 
     Priority is a figure stated in ``prompt``, then the primary ``article``,
@@ -213,7 +213,8 @@ def build_baseline(ticker, article=None, attachment=None, attachments=None,
         case['market']['price'] = price
     for key, source in _section_sources(picked).items():
         sources_used[key] = source
-    defaults = apply_defaults(case, currency=currency, yahoo_client=yahoo_client)
+    defaults = apply_defaults(
+        case, currency=currency, yahoo_client=yahoo_client, inflation_client=inflation_client)
     warnings.extend(defaults['warnings'])
     for path in defaults['filled']:
         sources_used.setdefault(path, 'assumption')

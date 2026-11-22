@@ -115,7 +115,8 @@ def build_server():
         case. Year 0 is the last completed fiscal year,
         never trailing twelve months. Canadian companies (a .TO, .V, .CN, or
         .NE ticker, or country CA) skip the SEC. Also fills me, mc, the cost
-        of equity, terminal growth, ROIC, the last close, year-0 leverage,
+        of equity, terminal growth, ROIC, expected inflation, an inflation
+        pass-through of 0.25, the last close, year-0 leverage,
         and a proportional buyback price when those were not stated.
         '''
         agent = (user_agent or '').strip() or os.environ.get('FINAGLE_SEC_USER_AGENT', '').strip()

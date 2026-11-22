@@ -2,7 +2,7 @@
 
 import copy
 
-SOURCES = ('prompt', 'article', 'attachment', '10k', 'yahoo', 'assumption')
+SOURCES = ('prompt', 'article', 'attachment', '10k', 'yahoo', 'fred', 'imf', 'assumption')
 BASELINE_PRIORITY = ('prompt', 'article', 'attachment', '10k', 'yahoo')
 BASES = ('fiscal_year', 'ttm', 'quarter')
 PATHS = ('ebitda', 'earnings', 'fcfe')
@@ -32,7 +32,7 @@ _LEAF = {
             'enum': list(SOURCES),
             'description': (
                 'prompt (stated in the request), article, attachment (another file '
-                'the user attached), 10k (SEC), yahoo (yfinance), or assumption.'
+                'the user attached), 10k (SEC), yahoo (yfinance), fred, imf, or assumption.'
             ),
         },
         'evidence': {
@@ -133,6 +133,15 @@ CASE_JSON_SCHEMA = {
                     'the 10-year yield when rates.risk_free is set.'
                 ),
                 'roict': _leaf_prop('Terminal ROIC, decimal. Sets terminal depreciation, and terminal capex when revenue is forecast.'),
+                'inflation': _leaf_prop(
+                    'Expected long-run inflation for the reporting currency, decimal. '
+                    'USD uses the FRED 10-year breakeven. Other currencies use the IMF '
+                    'CPI projection. The method default is 0.02.'
+                ),
+                'lam': _leaf_prop(
+                    'Inflation pass-through, from 0 to 1. 0 keeps terminal reinvestment at '
+                    'gt/roict. 1 is the Bradley-Jarrell rate (gt - inflation) / (roict - inflation).'
+                ),
                 'risk_free': _leaf_prop(
                     '10-year government yield for the reporting currency, decimal. '
                     'Terminal growth cannot exceed it.'

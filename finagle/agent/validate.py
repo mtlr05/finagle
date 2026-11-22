@@ -73,6 +73,7 @@ def validate_case(case):
     _check_periods(case, errors)
     _check_currency(case, errors)
     _check_growth_ceiling(case, errors)
+    _check_inflation_passthrough(case, errors, warnings)
     _check_stale_price(case, warnings)
     return {'errors': errors, 'warnings': warnings, 'missing': missing}
 
@@ -105,6 +106,8 @@ def _check_ebitda(case, errors, warnings, missing):
         _read(case, errors, missing, True, 'rates', name)
     _read(case, errors, missing, False, 'rates', 'te')
     _read(case, errors, missing, False, 'rates', 'risk_free')
+    _read(case, errors, missing, False, 'rates', 'inflation')
+    _read(case, errors, missing, False, 'rates', 'lam')
     for name in (
         'date', 'ebitda', 'capex', 'da', 'tax', 'interest', 'sbc', 'debt',
         'cash', 'nol', 'noa',
@@ -585,6 +588,45 @@ def _check_currency(case, errors):
                 )
 
 
+def _check_inflation_passthrough(case, errors, warnings):
+    '''lam stays in 0 to 1, and roict must exceed the inflation offset.'''
+    rates = case.get('rates')
+    if not isinstance(rates, dict):
+        return
+    lam = _rate_value(rates.get('lam'))
+    inflation = _rate_value(rates.get('inflation'))
+    roict = _rate_value(rates.get('roict'))
+    growth = _rate_value(rates.get('gt'))
+    if lam is not None and not 0 <= lam <= 1:
+        errors.append('rates.lam is %s. It must be from 0 to 1.' % lam)
+    if is_leaf(rates.get('lam')) and lam is None and rates['lam'].get('value') is not None:
+        errors.append('rates.lam must be a number.')
+    if is_leaf(rates.get('inflation')) and inflation is None and rates['inflation'].get('value') is not None:
+        errors.append('rates.inflation must be a number.')
+    if lam is not None and inflation is not None and roict is not None and roict - lam * inflation <= 0:
+        errors.append(
+            'rates.roict of %s is not above lam %s times inflation %s, '
+            'so the reinvestment rate is undefined.' % (roict, lam, inflation)
+        )
+    if (
+        lam is not None and inflation is not None and growth is not None
+        and lam > 0 and growth < lam * inflation
+    ):
+        warnings.append(
+            'rates.gt of %s is below lam %s times inflation %s, '
+            'so terminal net investment is negative.' % (growth, lam, inflation)
+        )
+
+
+def _rate_value(node):
+    if not is_leaf(node):
+        return None
+    value = node.get('value')
+    if _is_number(value):
+        return float(value)
+    return None
+
+
 def _check_growth_ceiling(case, errors):
     '''Terminal growth cannot exceed the stored 10-year yield.'''
     rates = case.get('rates')
@@ -646,7 +688,7 @@ def _consume(node, path, errors, missing, required):
 def _check_leaf_meta(path, node, errors):
     if node.get('source') not in SOURCES:
         errors.append(
-            '%s source must be prompt, article, attachment, 10k, yahoo, or assumption' % path
+            '%s source must be prompt, article, attachment, 10k, yahoo, fred, imf, or assumption' % path
         )
     evidence = node.get('evidence')
     if not isinstance(evidence, str) or not evidence.strip():

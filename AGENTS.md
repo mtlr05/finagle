@@ -40,6 +40,7 @@ When no source states them, `build_baseline` fills:
 
 - `me` = year-0 EBITDA / revenue, and `mc` = the average of `me` and the gross margin (`mc` equals `me` when gross margin is missing). Derived EBITDA growth rolls that margin forward: each year's sales growth is multiplied by `mc` divided by that year's EBITDA margin. The `me` passed to `forecast_ebitda` is EBITDA divided by revenue at the end of the explicit growth list when that revenue is known. A stated EBITDA growth rate is kept. Sales growth is turned into EBITDA growth only when no EBITDA growth was stated. When the article's sales forecast runs longer than its EBITDA dollars, leave `forecast.ebitda` unset. Impute `forecast.ebitda_growth` from those dollars through the last printed year, pass sales growth over that same window, and set `gsnext` to the sales growth stated after it. `article.ebitda_total` lists only the printed EBITDA years.
 - `re` = 0.055 + the 10-year yield of the reporting currency. `gt` equals that yield, and a higher `gt` is an error. `roict` = 0.15.
+- `lam` = 0.25. `inflation` is the FRED 10-year breakeven (`T10YIE`) for USD, or the IMF World Economic Outlook furthest-year CPI projection for another mapped currency, and 0.02 when neither loads. The terminal reinvestment rate is `(gt - lam * inflation) / (roict - lam * inflation)`. `lam` of 0 is `gt / roict`. `lam` of 1 is the Bradley-Jarrell rate.
 - The price is the last trading day's close, in the reporting currency.
 - With no debt policy, the target Debt/EBITDA is the year-0 ratio, starting in year 1.
 - A buyback uses a proportional price path.
@@ -50,7 +51,7 @@ When no source states them, `build_baseline` fills:
 - Working capital does not change (`forecast.dwc.mode` = `zero`).
 - Distribution mode is `none` (free cash flow to equity is paid out, with no buybacks).
 
-When no source states a capex or stock-based-compensation path, leave `forecast.capex` and `forecast.sbc` unset. Do not repeat the year-0 amount across the horizon. `run_case` then calls `forecast_sbc` and `forecast_capex`. If a case still assumes a full capex or SBC path, or repeats the year-0 amount, `run_case` cuts it back to year 0, warns, and runs `forecast_capex` and `forecast_sbc`. When revenue is forecast, capex method 1 keeps the last supplied depreciation-to-revenue ratio, solves terminal capex from the ROIC identity, and bridges the open years with revenue. Otherwise capex holds the last capex-to-EBITDA ratio. SBC holds the last SBC-to-EBITDA ratio unless a terminal rate is set. A stated path is still a short or full list, and a full list is kept.
+When no source states a capex or stock-based-compensation path, leave `forecast.capex` and `forecast.sbc` unset. Do not repeat the year-0 amount across the horizon. `run_case` then calls `forecast_sbc` and `forecast_capex`. If a case still assumes a full capex or SBC path, or repeats the year-0 amount, `run_case` cuts it back to year 0, warns, and runs `forecast_capex` and `forecast_sbc`. When revenue is forecast, capex method 1 keeps the last supplied depreciation-to-revenue ratio, solves terminal capex from `b = (gt - lam * inflation) / (roict - lam * inflation)`, and bridges the open years with revenue. `lam` of 0 is `gt / roict`. `lam` of 1 is the Bradley-Jarrell rate. Otherwise capex holds the last capex-to-EBITDA ratio, and the same rate sets terminal depreciation. SBC holds the last SBC-to-EBITDA ratio unless a terminal rate is set. A stated path is still a short or full list, and a full list is kept.
 
 ## A follow-up
 
@@ -73,7 +74,7 @@ Terminal depreciation or terminal capex can come out negative. The valuation sti
 ## What to report
 
 1. `value_per_share` (free cash flow to equity) and `value_per_share_DDM` (dividend discount)
-2. Every input whose source is `assumption`, with its reason
+2. Every input whose source is `assumption`, with its reason. `lam` and `inflation` are in that list when no source stated them. `inflation` loaded from FRED or the IMF is reported with that source instead.
 3. Validation warnings, log errors, and `sanity_flags`
 4. The article's price target, next to the model value
 5. `notebook_code`, so a person can rerun the same case in a notebook
@@ -99,8 +100,8 @@ The article workflow above is unchanged. This section applies only when the requ
 
 - The inputs are the Forecaster's sales growth, EBITDA growth, `me`, `mc`, `gsnext`, EBITDA basis, and any acquisitions in the forecast, plus `prompt_inputs`. `prompt_inputs` are only leaves the user stated, as explicit values, with the user's words and date. Source is `prompt`.
 - Do not treat the request as an article valuation. Do not fill a leaf from a PDF or from a default when the request already has it.
-- `build_baseline` still supplies price, shares, the risk-free rate, the cost of equity, terminal growth, the year-0 figures, and the unstated assumptions in Defaults (horizon, tax rate, cost of debt, tax losses, non-operating assets, working capital, distribution, and the debt target), unless a `prompt_inputs` item states one.
+- `build_baseline` still supplies price, shares, the risk-free rate, the cost of equity, terminal growth, the year-0 figures, and the unstated assumptions in Defaults (horizon, tax rate, cost of debt, tax losses, non-operating assets, working capital, distribution, the debt target, `lam` of 0.25, and expected inflation), unless a `prompt_inputs` item states one.
 - Apply the request with `update_case` after `build_baseline`. Forecaster leaves first, then `prompt_inputs`. `build_baseline` drops a prompt leaf that has no fiscal-year basis, so these leaves go on afterwards.
 - Report every leaf filled by default (`source` `assumption`). Do not apply a post-run factor. Do not write the company report. The Forecaster does that from the result file.
 - A Grok Bot fast-forwards its own clone to `origin/main` before the run and records the commit. If the fast-forward fails, stop. Do not reset. A Cursor session does not pull. It uses the checkout it was given and records that commit.
-- Do not invent a stock-comp path, and do not replace those labeled defaults with a different horizon, tax rate, cost of debt, working-capital rule, or payout rule. If the user stated a formula rather than numbers, the coordinator turns it into explicit values before the run. A full list whose source is `assumption` is cut back to year 0, so a list the user stated uses source `prompt`.
+- Do not invent a stock-comp path, and do not replace those labeled defaults with a different horizon, tax rate, cost of debt, working-capital rule, payout rule, or inflation pass-through. If the user stated a formula rather than numbers, the coordinator turns it into explicit values before the run. A full list whose source is `assumption` is cut back to year 0, so a list the user stated uses source `prompt`.

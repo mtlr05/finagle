@@ -736,3 +736,18 @@ def test_sanity_flags_follow_the_cash_rules():
     assert 're <= gt' in sanity_flags(0.02, 0.02, [], [], 0.03)
     assert 'wacc <= gt' in sanity_flags(0.1, 0.02, [], [], 0.02)
     assert sanity_flags(0.1, 0.02, [0], [1, 1, 1], 0.08) == []
+
+
+def test_a_full_capex_list_still_stores_a_nonzero_pass_through():
+    case = _capex_case()
+    case['forecast']['capex'] = stated([1, 2, 3])
+    case['forecast']['sbc'] = stated([0, 0, 0])
+    case['rates']['lam'] = leaf(0.25)
+    case['rates']['inflation'] = leaf(0.023)
+    compiled = compile_case(case)
+    capex = next(step for step in compiled['steps'] if step['method'] == 'forecast_capex')
+    assert capex['args']['lam'] == 0.25
+    assert capex['args']['inflation'] == 0.023
+    result = run_case(case)
+    assert 'lam=' in result['notebook_code']
+    assert 'inflation=' in result['notebook_code']

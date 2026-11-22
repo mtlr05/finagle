@@ -62,7 +62,7 @@ _DISTRIBUTION_STUBS = (
 
 _ARG_ORDER = {
     'forecast_ebitda': ('ebitda_ttm', 'gf', 'me', 'mc', 'gsnext'),
-    'forecast_capex': ('capex_f', 'method'),
+    'forecast_capex': ('capex_f', 'method', 'lam', 'inflation'),
     'forecast_sbc': ('sbc_f', 'sbc_rate_t'),
     'fcf_from_earnings': ('payout', 'gf', 'ROE'),
     'fcf_to_debt': ('leverage', 'year_d'),
@@ -368,7 +368,7 @@ def _forecast_lines(executed, ebitda_step, margin):
     if capex:
         lines.append(_call_line(capex))
     else:
-        lines.append("# co.forecast_capex(financials['capex'], financials)")
+        lines.append("# co.forecast_capex(financials['capex'], financials, lam=0, inflation=0.02)")
     lines.append('')
     return lines
 

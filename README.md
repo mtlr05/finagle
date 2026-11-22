@@ -139,7 +139,8 @@ company(
 | `price` | `0` | Current share price |
 | `gt` | `0` | Terminal growth rate |
 | `fcfe` / `fcff` / `fcf` | `None` | Optional direct cash-flow series for DCF without a full build |
-| `roict` | `0.15` | Terminal ROIC; used mainly for terminal depreciation |
+| `roict` | `0.15` | Terminal ROIC; used for terminal depreciation and, with `forecast_capex`, terminal capex |
+| `forecast_capex` `lam` | `0` | Not a constructor argument. Inflation pass-through on `forecast_capex`; `inflation` defaults to `0.02`. `0` is `gt/roict`. `1` is Bradley-Jarrell |
 | `year` | `6` | Final forecast year (year before terminal) |
 | `dividend` | `0` | Current dividend policy (`float`/`int` or `list`) |
 
@@ -232,7 +233,7 @@ Year 0 is the last completed fiscal year, never trailing twelve months, because 
 
 `build_baseline` does the merge. The baseline year is the highest source's fiscal year; lower sources only fill that same year, and a newer fiscal year in the data is reported as a warning. Every reported figure carries `basis: "fiscal_year"`, its `period_end`, and its `currency`, and `validate_case` rejects a mix of years or currencies.
 
-When a value is still empty, the merge fills it. The EBITDA margin `me` is year-0 EBITDA over revenue. The contribution margin `mc` is the average of `me` and the gross margin, or `me` when gross margin was not found. The forecast uses those margins so the years after any stated growth list follow sales. A stated EBITDA growth rate is kept. The cost of equity is 0.055 plus the 10-year yield of the reporting currency, terminal growth equals that yield and cannot exceed it, and terminal ROIC is 15 percent. The price is the last close. With no debt policy, the target leverage is the year-0 Debt/EBITDA. A buyback uses a proportional price path.
+When a value is still empty, the merge fills it. The EBITDA margin `me` is year-0 EBITDA over revenue. The contribution margin `mc` is the average of `me` and the gross margin, or `me` when gross margin was not found. The forecast uses those margins so the years after any stated growth list follow sales. A stated EBITDA growth rate is kept. The cost of equity is 0.055 plus the 10-year yield of the reporting currency, terminal growth equals that yield and cannot exceed it, and terminal ROIC is 15 percent. The inflation pass-through `lam` is 0.25. Expected inflation is the FRED 10-year breakeven for USD, the IMF furthest-year CPI projection for another mapped currency, and 0.02 when neither loads. The reinvestment rate is `(gt - lam * inflation) / (roict - lam * inflation)`. The price is the last close. With no debt policy, the target leverage is the year-0 Debt/EBITDA. A buyback uses a proportional price path.
 
 ```python
 from finagle.agent import build_baseline
@@ -312,11 +313,11 @@ Use `--transport streamable-http` for a remote client. Hosting the server at a p
 
 Build a multi-year EBITDA forecast (and optionally revenue). Growth rates `gf` (float or list) are interpolated to terminal growth `gt`. If `me`, `mc`, and `gsnext` are all set, later years use a margin / sales-growth path. Revenue supplied in `financials` is kept on the earlier years, and the open years between the last supplied revenue and the first calculated revenue are linear in EBITDA. Otherwise EBITDA compounds by growth and `revenue` is filled with `0`. When `financials` is passed, the series are stored on the instance for `load_financials`. The caller's dict is not modified. `financials=None` (used internally for acquisition EBITDA) only returns the list.
 
-#### `forecast_capex(capex_f, financials, method=None)`
+#### `forecast_capex(capex_f, financials, method=None, lam=0, inflation=0.02)`
 
 Extend a partial capex forecast. `method=None` uses method 1 when revenue is non-zero at the last supplied depreciation year and at the terminal year, and method 2 otherwise.
 
-Method 1 sets terminal depreciation to `DA[k] / revenue[k] * revenue[year]`, solves terminal capex from the same ROIC identity that otherwise solves terminal depreciation, and bridges the open years with revenue. Call `forecast_sbc` first when a terminal SBC rate is set, because the identity uses that SBC. Method 1 logs an error and does not write capex when that revenue is missing.
+Method 1 sets terminal depreciation to `DA[k] / revenue[k] * revenue[year]`, solves terminal capex from the reinvestment rate, and bridges the open years with revenue. The rate is `b = (gt - lam * inflation) / (roict - lam * inflation)`, and the identity uses `C = b * (1 - t)`. `lam` of 0, the default, is `gt / roict` and ignores inflation. `lam` of 1 is the Bradley-Jarrell rate `(gt - inflation) / (roict - inflation)`. `inflation` defaults to 0.02. The same pair is stored for the terminal depreciation plug, including when method 2 holds the last capex-to-EBITDA ratio and when the capex list is already complete. Call `forecast_sbc` first when a terminal SBC rate is set, because the identity uses that SBC. Method 1 logs an error and does not write capex when that revenue is missing, or when `roict - lam * inflation` is not positive.
 
 Method 2 holds the last capex/EBITDA ratio. A list that already covers every year is left as given. EBITDA comes from a stored `forecast_ebitda` result when that exists, otherwise from `financials['ebitda']`. The completed series is stored on the instance. Negative terminal capex is a warning; the forecast is still returned.
 
